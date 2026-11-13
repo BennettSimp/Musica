@@ -1,0 +1,20 @@
+{
+  "name": "evaluador-musical",
+  "version": "1.0.0",
+  "description": "Evaluador y calificador musical PWA",
+  "main": "public/app.js",
+  "scripts": {
+    "start": "npx serve public",
+    "build": "echo 'Preparando despliegue en Vercel...'"
+  },
+  "keywords": [
+    "pwa",
+    "music",
+    "evaluator"
+  ],
+  "author": "BennettSIMP (K.R.C)",
+  "license": "MIT",
+  "devDependencies": {
+    "serve": "^14.2.0"
+  }
+}

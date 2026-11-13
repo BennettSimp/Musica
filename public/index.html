@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evaluador musical</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://clasificacion-de-musica.onrender.com" crossorigin>
+    <meta name="description" content="Califica tu música favorita por ritmo, letras, coro e importancia.">
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎧</text></svg>">
+    <script>
+        // Si /styles.css aún no existe (no se ha hecho el build), carga Tailwind por CDN como respaldo.
+        function cargarTailwindCDN() {
+            const s = document.createElement('script'); s.src = 'https://cdn.tailwindcss.com';
+            s.onload = () => { tailwind.config = { theme: { extend: { fontFamily: { mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'], display: ['"Chakra Petch"', 'sans-serif'] } } } }; };
+            document.head.appendChild(s);
+        }
+    </script>
+    <link rel="stylesheet" href="/styles.css" onerror="cargarTailwindCDN()">
+    <style>
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+        .toast-enter { animation: slideIn 0.3s ease-out forwards; }
+        .toast-exit { animation: fadeOut 0.5s ease-in forwards; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { scrollbar-width: none; }
+        
+        input[type=range] {
+            appearance: none;
+            -webkit-appearance: none;
+            background: #111827;
+            border: 1px solid #1e293b;
+            height: 12px;
+            border-radius: 6px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #d946ef;
+            box-shadow: 0 0 12px #d946ef;
+            cursor: pointer;
+        }
+        
+        input[type=range]::-moz-range-thumb { height: 24px; width: 24px; border: 0; border-radius: 50%; background: #d946ef; box-shadow: 0 0 12px #d946ef; cursor: pointer; }
+        html { color-scheme: dark; } :focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+        @media (max-width: 767px) { input, select { font-size: 16px !important; } }
+        @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+        .active-song {
+            border: 1px solid #d946ef !important;
+            box-shadow: 0 0 15px rgba(217, 70, 239, 0.4);
+            background-color: #1a0a20 !important;
+        }
+    </style>
+</head>
+<body class="bg-black text-cyan-50 font-mono p-3 md:p-6 selection:bg-cyan-500 selection:text-black min-h-screen">
+    
+    <!-- DASHBOARD SUPERIOR -->
+    <header class="max-w-7xl mx-auto mb-4 pb-3 border-b border-cyan-800 flex flex-col md:flex-row justify-between items-center gap-3">
+        <div class="text-center md:text-left">
+            <h1 class="font-display text-xl md:text-2xl font-bold text-cyan-400 uppercase tracking-widest">Evaluador musical</h1>
+            <p class="text-cyan-500 text-xs md:text-xs">Un calificador bonito de música</p>
+        </div>
+        
+        <!-- ESTADÍSTICAS RESPONSIVAS -->
+        <div class="grid grid-cols-4 gap-2 w-full md:w-auto text-[11px] md:text-xs uppercase tracking-wide">
+            <div class="bg-gray-950 border border-cyan-900 p-2 text-center rounded"><span class="text-gray-500 block text-[11px]">Total canciones</span><span id="stat-total" class="text-cyan-400 font-bold">0</span></div>
+            <div class="bg-gray-950 border border-cyan-900 p-2 text-center rounded"><span class="text-gray-500 block text-[11px]">Calif. promedio</span><span id="stat-promedio" class="text-yellow-400 font-bold">0.0</span></div>
+            <div class="bg-gray-950 border border-cyan-900 p-2 text-center rounded"><span class="text-gray-500 block text-[11px]">Canciones God</span><span id="stat-top" class="text-yellow-400 font-bold">0</span></div>
+            <div class="bg-gray-950 border border-cyan-900 p-2 text-center rounded"><span class="text-gray-500 block text-[11px]">Pendientes</span><span id="stat-pending" class="text-gray-400 font-bold">0</span></div>
+        </div>
+    </header>
+
+    <!-- PESTAÑAS NAVEGACIÓN MÓVIL (Solo visibles en celulares) -->
+    <div role="tablist" class="flex md:hidden mb-4 border border-cyan-900 rounded overflow-hidden text-xs">
+        <button role="tab" id="tab-btn-cat" onclick="switchTab('cat')" class="flex-1 py-2.5">Catálogo</button>
+        <button role="tab" id="tab-btn-rub" onclick="switchTab('rub')" class="flex-1 py-2.5">Evaluar</button>
+        <button role="tab" id="tab-btn-reg" onclick="switchTab('reg')" class="flex-1 py-2.5">Agregar</button>
+        <button role="tab" id="tab-btn-rad" onclick="switchTab('rad')" class="flex-1 py-2.5">Radar</button>
+    </div>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-6">
+        
+        <!-- COLUMNA IZQUIERDA (FORMULARIOS) -->
+        <div class="md:col-span-5 space-y-4">
+            
+            <!-- CONTENEDOR REGISTRO -->
+            <div id="section-registro" class="hidden md:block bg-gray-950 p-4 rounded border border-cyan-800 relative">
+                <div class="absolute top-0 left-0 w-full h-1 bg-cyan-600"></div>
+                <h2 class="text-xs font-bold text-cyan-500 mb-3 uppercase tracking-widest">> Agregar canción</h2>
+                <input id="titulo" onkeydown="if(event.key==='Enter')conBloqueo(agregarCancion)" aria-label="Título de la canción" type="text" maxlength="80" placeholder="Canción" class="w-full mb-3 p-3 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 uppercase text-xs rounded">
+                <input id="artista" onkeydown="if(event.key==='Enter')conBloqueo(agregarCancion)" aria-label="Artista" type="text" maxlength="80" placeholder="Artista" class="w-full mb-3 p-3 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 uppercase text-xs rounded">
+                
+                <div class="grid grid-cols-2 gap-2 mb-3">
+           <select id="reg-genero" aria-label="Género" class="w-full p-2.5 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 uppercase text-xs rounded cursor-pointer"></select>
+           <select id="reg-etiqueta" aria-label="Tipo de versión" class="w-full p-2.5 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 uppercase text-xs rounded cursor-pointer">
+    <option value="Original" selected>Original</option>
+    <option value="Remix">Remix</option>
+    <option value="Slowed Reverb">Slowed + Reverb</option>
+    <option value="Cover">Cover</option>
+    <option value="Fragmento">Fragmento</option>
+</select>
+                </div>
+                
+                <button onclick="conBloqueo(agregarCancion)" class="w-full bg-cyan-900 hover:bg-cyan-600 text-black font-bold py-3 uppercase tracking-widest text-xs transition-all rounded">Añadir canción</button>
+            </div>
+
+            <!-- CONTENEDOR RÚBRICA -->
+            <div id="section-rubrica" class="hidden md:block bg-gray-950 p-4 rounded border border-fuchsia-900 relative">
+                <div class="absolute top-0 left-0 w-full h-1 bg-fuchsia-600"></div>
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-xs font-bold text-fuchsia-500 uppercase tracking-widest">> Métricas</h2>
+                    <button onclick="limpiarFormulario(false)" class="text-xs text-gray-400 hover:text-white border border-gray-700 px-2 py-1 rounded">Borrar</button>
+                </div>
+                
+                <input id="id_cancion" type="hidden">
+                <p id="cancion-activa" class="text-center text-sm text-fuchsia-300 mb-4 p-2.5 border border-fuchsia-900 rounded break-words">Selecciona una canción en el catálogo</p>
+                
+                <div class="space-y-4 mb-4">
+                    <div><label for="ritmo" class="flex justify-between text-xs text-gray-300 mb-1">RITMO (35%) <span id="val_ritmo" class="text-fuchsia-400 font-bold">5.0</span></label><input id="ritmo" type="range" min="0" max="10" step="0.1" value="5" class="w-full" oninput="actualizarValores()"></div>
+                    <div><label for="letras" class="flex justify-between text-xs text-gray-300 mb-1">LETRAS (25%) <span id="val_letras" class="text-fuchsia-400 font-bold">5.0</span></label><input id="letras" type="range" min="0" max="10" step="0.1" value="5" class="w-full" oninput="actualizarValores()"></div>
+                    <div><label for="coro" class="flex justify-between text-xs text-gray-300 mb-1">CORO (40%) <span id="val_coro" class="text-fuchsia-400 font-bold">5.0</span></label><input id="coro" type="range" min="0" max="10" step="0.1" value="5" class="w-full" oninput="actualizarValores()"></div>
+                    <div class="pt-2 border-t border-fuchsia-950"><label for="importancia" class="flex justify-between text-xs text-yellow-500 mb-1">IMPORTANCIA (MAX 5) <span id="val_importancia" class="text-yellow-400 font-bold">2.5</span></label><input id="importancia" type="range" min="0" max="5" step="0.1" value="2.5" class="w-full accent-yellow-500" oninput="actualizarValores()"></div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2 mb-4 bg-black p-3 border border-fuchsia-950 text-xs rounded">
+                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer"><input type="checkbox" id="antiguedad" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Antigüedad</span></label>
+                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer"><input type="checkbox" id="nostalgia" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Nostalgia</span></label>
+                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer"><input type="checkbox" id="complejidad" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Complejidad</span></label>
+                    <!-- Etiqueta de Recomendación cambiada a Descubrimiento Único -->
+                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer"><input type="checkbox" id="recomendacion" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Descubrimiento único</span></label>
+                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer col-span-2"><input type="checkbox" id="arte_visual" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Arte Visual</span></label>
+                </div>
+                
+                <button onclick="conBloqueo(calificarCancion)" class="w-full bg-fuchsia-800 hover:bg-fuchsia-600 text-black font-bold py-3 uppercase tracking-widest text-xs transition-all rounded">Actualizar calificación</button>
+            </div>
+            <!-- RADAR -->
+            <div id="section-radar" class="hidden md:block bg-gray-950 p-4 rounded border border-yellow-700 relative">
+                <div class="absolute top-0 left-0 w-full h-1 bg-yellow-500"></div>
+                <h2 class="font-display text-sm font-bold text-yellow-400 mb-1">Radar del top 5</h2>
+                <p class="text-xs text-gray-400 mb-3">Elige el criterio del top. En la gráfica los ejes se dibujan de 0 a 10.</p>
+                <div id="radar-criterio" role="group" aria-label="Criterio del radar" class="flex flex-wrap gap-1.5 mb-3"></div>
+                <svg id="radar" viewBox="0 0 340 320" class="w-full max-w-sm mx-auto" role="img" aria-label="Gráfica de radar de las mejores canciones"></svg>
+                <ul id="radar-leyenda" class="mt-3 space-y-1.5 text-xs"></ul>
+                <h3 class="font-display text-sm font-bold text-cyan-400 mt-5 mb-2">Promedio por género</h3>
+                <ul id="generos-stats" class="space-y-2 text-xs"></ul>
+            </div>
+        </div>
+
+        <!-- COLUMNA DERECHA (CATÁLOGO Y BÚSQUEDA) -->
+        <div id="section-catalogo" class="md:col-span-7 bg-gray-950 p-4 rounded border border-cyan-800 flex flex-col md:flex min-h-[500px]">
+            
+            <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mb-3 gap-2 pb-2 border-b border-cyan-900">
+                <h2 class="text-xs font-bold text-cyan-500 uppercase tracking-widest flex items-center">Tabla de clasificación</h2>
+                
+                <div class="grid grid-cols-2 sm:flex sm:items-center gap-2">
+                    <input type="hidden" id="filtro-genero" value="todos">
+                    <select id="select-orden" aria-label="Ordenar por" onchange="cargarCatalogo(1)" class="col-span-2 sm:col-span-1 bg-black text-cyan-300 border border-cyan-900 p-2 text-xs uppercase focus:outline-none rounded cursor-pointer w-full sm:w-auto">
+                        <option value="top">Mejores (Top)</option>
+                        <option value="peores">Peores</option>
+                        <option value="recientes">Recientes</option>
+                        <option value="alfabetico">A - Z</option>
+                        <option value="sin_calificar">Sin calificar</option><option value="ritmo">Mejor ritmo</option><option value="letras">Mejores letras</option><option value="coro">Mejor coro</option><option value="importancia">Más importantes</option>
+                    </select>
+                    <input id="input-buscar" aria-label="Buscar canciones" type="text" placeholder="BUSCAR..." class="p-2 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 text-xs uppercase col-span-2 sm:col-span-1 w-full sm:w-32 rounded" oninput="debounceBuscar()" onkeydown="if(event.key === 'Enter'){ clearTimeout(searchTimeout); cargarCatalogo(1); }">
+                    <button onclick="cargarCatalogo(1)" class="col-span-2 sm:col-span-1 border border-cyan-600 text-cyan-400 hover:bg-cyan-900 px-3 py-2 text-xs uppercase rounded transition">Buscar</button>
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-2 mb-2 text-xs"><span class="text-gray-400">Respaldo:</span><button onclick="exportar('csv')" class="border border-cyan-700 text-cyan-300 hover:bg-cyan-900 px-3 py-1.5 rounded">Exportar CSV</button><button onclick="exportar('json')" class="border border-cyan-700 text-cyan-300 hover:bg-cyan-900 px-3 py-1.5 rounded">Exportar JSON</button></div>
+            <div id="chips-genero" role="group" aria-label="Filtrar por género" class="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-2"></div>
+            <div id="lista_canciones" class="space-y-2.5 overflow-y-auto pr-1 flex-1"></div>
+        </div>
+    </div>
+
+    <!-- NOTIFICACIONES Y MODALES -->
+    <div id="toast-container" role="status" aria-live="polite" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 max-w-[90vw]"></div>
+
+    <div id="custom-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-gray-950 border border-cyan-500 p-5 rounded shadow-[0_0_20px_rgba(6,182,212,0.4)] max-w-md w-full">
+            <h3 id="modal-title" class="text-sm font-bold text-cyan-400 mb-3 uppercase tracking-widest">ATENCIÓN</h3>
+            <div id="modal-content" class="mb-4 space-y-3"></div>
+            <div class="flex justify-end space-x-3">
+                <button onclick="closeModal(false)" class="text-gray-400 hover:text-gray-200 text-xs uppercase py-2 px-3">CANCELAR</button>
+                <button id="modal-confirm-btn" onclick="closeModal(true)" class="bg-cyan-800 hover:bg-cyan-600 text-black px-4 py-2 uppercase font-bold text-xs rounded">CONFIRMAR</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js" defer></script>
+</body>
+</html>
