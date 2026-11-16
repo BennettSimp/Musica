@@ -1,0 +1,10 @@
+# El backend solo necesita main.cpp y CMakeLists.txt
+.git
+public/
+*.md
+.env*
+build/
+*.sql
+*.py
+*.log
+revision-datos.json

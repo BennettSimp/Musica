@@ -3,8 +3,8 @@
   "short_name": "Evaluador",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#040b1a",
+  "theme_color": "#040b1a",
   "lang": "es",
   "icons": [
     {

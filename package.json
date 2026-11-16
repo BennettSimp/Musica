@@ -5,7 +5,7 @@
   "main": "public/app.js",
   "scripts": {
     "start": "npx serve public",
-    "build": "echo 'Preparando despliegue en Vercel...'"
+    "build": "echo 'Frontend estatico sin build: Tailwind por CDN, salida en public/'"
   },
   "keywords": [
     "pwa",

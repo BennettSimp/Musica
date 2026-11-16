@@ -20,7 +20,7 @@
       ]
     },
     {
-      "source": "/(styles.css|app.js)",
+      "source": "/(app.js)",
       "headers": [
         {
           "key": "Cache-Control",
