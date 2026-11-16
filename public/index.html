@@ -8,19 +8,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="preconnect" href="https://clasificacion-de-musica.onrender.com" crossorigin>
     <meta name="description" content="Califica tu música favorita por ritmo, letras, coro e importancia.">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#040b1a">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎧</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22 fill=%22%2300e5ff%22>%E2%99%AA</text></svg>">
+    <!-- Tailwind por CDN directamente (L7, auditoría ronda 1): /styles.css no
+         existe y el <link> muerto solo provocaba un 404 en cada carga. -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        // Si /styles.css aún no existe (no se ha hecho el build), carga Tailwind por CDN como respaldo.
-        function cargarTailwindCDN() {
-            const s = document.createElement('script'); s.src = 'https://cdn.tailwindcss.com';
-            s.onload = () => { tailwind.config = { theme: { extend: { fontFamily: { mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'], display: ['"Chakra Petch"', 'sans-serif'] } } } }; };
-            document.head.appendChild(s);
-        }
+        tailwind.config = { theme: { extend: { fontFamily: { mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'], display: ['"Chakra Petch"', 'sans-serif'] } } } };
     </script>
-    <link rel="stylesheet" href="/styles.css" onerror="cargarTailwindCDN()">
     <style>
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
@@ -28,60 +25,162 @@
         .toast-exit { animation: fadeOut 0.5s ease-in forwards; }
         .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { scrollbar-width: none; }
         
+        /* Color propio por criterio (3): cada deslizador tiene su color en
+           pulgar, brillo y relleno. El pulgar es un poco mas pequeno (4),
+           26px en vez de 30px; la zona de arrastre se mantiene en 46px. */
         input[type=range] {
+            --sc: #d946ef; --sc-claro: #f0abfc; --sc-glow: rgba(217,70,239,0.5);
             appearance: none;
             -webkit-appearance: none;
-            background: #111827;
+            background: #0f1a36;
             border: 1px solid #1e293b;
             height: 12px;
             border-radius: 6px;
+            touch-action: none;
+            padding: 17px 0;
+            background-clip: content-box;
         }
+        input[type=range].slider-cian { --sc: #22d3ee; --sc-claro: #a5f3fc; --sc-glow: rgba(34,211,238,0.5); }
+        input[type=range].slider-fuchsia { --sc: #d946ef; --sc-claro: #f0abfc; --sc-glow: rgba(217,70,239,0.5); }
+        input[type=range].slider-violeta { --sc: #8b5cf6; --sc-claro: #ddd6fe; --sc-glow: rgba(139,92,246,0.5); }
+        input[type=range].slider-ambar { --sc: #f59e0b; --sc-claro: #fde68a; --sc-glow: rgba(245,158,11,0.5); }
         input[type=range]::-webkit-slider-thumb {
             -webkit-appearance: none;
-            height: 24px;
-            width: 24px;
+            height: 26px;
+            width: 26px;
             border-radius: 50%;
-            background: #d946ef;
-            box-shadow: 0 0 12px #d946ef;
-            cursor: pointer;
+            background: var(--sc);
+            border: 2px solid var(--sc-claro);
+            box-shadow: 0 0 14px var(--sc), 0 0 28px var(--sc-glow);
+            cursor: grab;
+            transition: transform .15s ease, box-shadow .15s ease;
         }
-        
-        input[type=range]::-moz-range-thumb { height: 24px; width: 24px; border: 0; border-radius: 50%; background: #d946ef; box-shadow: 0 0 12px #d946ef; cursor: pointer; }
-        html { color-scheme: dark; } :focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+        input[type=range]:active::-webkit-slider-thumb, input[type=range].dragging::-webkit-slider-thumb {
+            cursor: grabbing;
+            transform: scale(1.25);
+            box-shadow: 0 0 20px var(--sc), 0 0 40px var(--sc-glow);
+        }
+        input[type=range]::-moz-range-thumb { height: 26px; width: 26px; border: 2px solid var(--sc-claro); border-radius: 50%; background: var(--sc); box-shadow: 0 0 14px var(--sc); cursor: grab; }
+        input[type=range]:active::-moz-range-thumb { transform: scale(1.25); cursor: grabbing; }
+        /* La burbuja de valor se quito por decision del usuario (2026-11-13). */
+        /* Fondo en <html>, no en <body> con background-attachment: fixed:
+           el fondo del elemento raíz se pinta sobre el lienzo y queda fijo
+           al viewport por especificación, sin que el navegador tenga que
+           repintar las 6 capas (4 radiales + rejilla 44px) en cada cuadro al
+           desplazar en el celular (auditoría G, ronda 1: el lag). El aspecto
+           es idéntico: mismo color, mismas capas, mismo tamaño de rejilla. */
+        html {
+            color-scheme: dark;
+            background-color: #040b1a;
+            background-image:
+                radial-gradient(ellipse 80% 45% at 50% -10%, rgba(34,211,238,0.14), transparent 60%),
+                radial-gradient(ellipse 60% 40% at 85% 0%, rgba(255,46,166,0.08), transparent 60%),
+                radial-gradient(ellipse 50% 35% at 10% 0%, rgba(255,122,24,0.06), transparent 60%),
+                radial-gradient(ellipse 70% 40% at 50% 110%, rgba(255,46,166,0.06), transparent 60%),
+                linear-gradient(rgba(56,189,248,0.07) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(56,189,248,0.07) 1px, transparent 1px);
+            background-size: auto, auto, auto, auto, 44px 44px, 44px 44px;
+        } :focus-visible { outline: 2px solid #00e5ff; outline-offset: 2px; }
+        @keyframes haloDorado { 0%, 100% { box-shadow: 0 0 18px rgba(250,204,21,0.7), inset 0 0 18px rgba(250,204,21,0.25); } 50% { box-shadow: 0 0 30px rgba(250,204,21,0.95), inset 0 0 26px rgba(250,204,21,0.4); } }
+        .halo-dorado { animation: haloDorado 2.4s ease-in-out infinite; }
         @media (max-width: 767px) { input, select { font-size: 16px !important; } }
         @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+        .active-song .row-acciones { display: flex; }
         .active-song {
-            border: 1px solid #d946ef !important;
-            box-shadow: 0 0 15px rgba(217, 70, 239, 0.4);
-            background-color: #1a0a20 !important;
+            border: 2px solid #ff2e88 !important; /* 2px como las filas (border-2) desde el cambio de contornos; con 1px la fila activa se veia mas delgada que las demas */
+            box-shadow: 0 0 15px rgba(255, 46, 136, 0.5);
+            background-color: #0e1e3d !important;
         }
+        /* PALETA HIBRIDA (decision del usuario 2026-11-13 10:19 CST):
+           brillos Synthwave, fondo y zona Guardar calificacion Atardecer
+           neon, lo demas Ciberpunk. Las categorias de las canciones y los
+           colores por criterio NO cambian. */
+        /* (6) Entrada escalonada de las filas; (8) linea degradada bajo el encabezado. */
+        @keyframes entradaFila { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .cancion-row { animation: entradaFila 0.35s ease-out both; }
+        .cancion-row.sin-animacion { animation: none; }
+        @keyframes deslizarDegradado { from { background-position: 0% 0; } to { background-position: 200% 0; } }
+        .linea-atardecer { background: linear-gradient(90deg, #22d3ee, #ff2ea6, #ff7a18, #22d3ee); background-size: 200% 100%; animation: deslizarDegradado 6s linear infinite; box-shadow: 0 0 12px rgba(255,46,166,0.5); }
+        /* Color propio por seccion en la pestaña activa (decision 2026-11-13 12:05). */
+        .tab-top { background: linear-gradient(90deg, #fbbf24, #f59e0b); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(251,191,36,0.55); transform: scale(1.04); }
+        .tab-rub { background: linear-gradient(90deg, #e879f9, #d946ef); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(217,70,239,0.55); transform: scale(1.04); }
+        .tab-reg { background: linear-gradient(90deg, #22d3ee, #06b6d4); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(34,211,238,0.55); transform: scale(1.04); }
+        .tab-gra { background: linear-gradient(90deg, #a78bfa, #8b5cf6); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(139,92,246,0.55); transform: scale(1.04); }
+        [role="tablist"] button, nav a { transition: background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease, color 0.25s ease; }
+        .titulo-neon { text-shadow: 0 0 16px rgba(0,229,255,0.9), 0 0 44px rgba(255,46,136,0.6), 0 0 80px rgba(255,46,136,0.35); }
+        /* Brillo en cada titulo (decision del usuario 2026-11-13 11:04 CST,
+           como el titulo de la imagen del mockup Synthwave). */
+        .brillo-titulo { text-shadow: 0 0 8px rgba(56,189,248,0.75), 0 0 22px rgba(56,189,248,0.35); }
+        .brillo-titulo-amarillo { text-shadow: 0 0 8px rgba(255,211,25,0.8), 0 0 24px rgba(255,211,25,0.4); }
+        /* (Stats) Cada cuadro con el borde y el brillo de su propio color. */
+        /* (Contornos) Paneles con borde vivo y glow sutil por fuera. */
+        /* (Fondo de paneles) Degradado azul con lavado cian arriba. */
+        .panel-fondo { background: radial-gradient(ellipse 90% 35% at 50% 0%, rgba(34,211,238,0.12), transparent 70%), linear-gradient(165deg, #0e2242 0%, #0b1a33 55%, #071026 100%); }
+        @keyframes entradaModal { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        .modal-anim { animation: entradaModal 0.2s ease-out; }
+        .rango-activo { outline: 1px solid #38bdf8; box-shadow: 0 0 10px rgba(56,189,248,0.4); border-radius: 0.5rem; }
+        @keyframes deslizarEsqueleto { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+        .esqueleto { background: linear-gradient(90deg, #16294d 25%, rgba(56,189,248,0.18) 50%, #16294d 75%); background-size: 200% 100%; animation: deslizarEsqueleto 1.4s linear infinite; }
+        .genero-top { border: 1px solid rgba(56,189,248,0.5); background: rgba(56,189,248,0.06); border-radius: 0.5rem; padding: 0.25rem 0.5rem; }
+        .panel-neon { border-color: rgba(56,189,248,0.55); box-shadow: 0 0 18px rgba(56,189,248,0.18), inset 0 0 24px rgba(56,189,248,0.04); }
+        #select-orden:focus, #input-buscar:focus { border-color: #38bdf8; box-shadow: 0 0 12px rgba(56,189,248,0.5); }
+        .stat-sky { border-color: rgba(56,189,248,0.55); box-shadow: 0 0 14px rgba(56,189,248,0.25), inset 0 0 12px rgba(56,189,248,0.06); }
+        .stat-sky:hover { box-shadow: 0 0 24px rgba(56,189,248,0.45), inset 0 0 12px rgba(56,189,248,0.08); }
+        .stat-ambar { border-color: rgba(251,191,36,0.55); box-shadow: 0 0 14px rgba(251,191,36,0.25), inset 0 0 12px rgba(251,191,36,0.06); }
+        .stat-ambar:hover { box-shadow: 0 0 24px rgba(251,191,36,0.45), inset 0 0 12px rgba(251,191,36,0.08); }
+        .stat-verde { border-color: rgba(34,197,94,0.55); box-shadow: 0 0 14px rgba(34,197,94,0.25), inset 0 0 12px rgba(34,197,94,0.06); }
+        .stat-verde:hover { box-shadow: 0 0 24px rgba(34,197,94,0.45), inset 0 0 12px rgba(34,197,94,0.08); }
+        .stat-gris { border-color: rgba(148,163,184,0.45); box-shadow: 0 0 14px rgba(148,163,184,0.2), inset 0 0 12px rgba(148,163,184,0.05); }
+        .stat-gris:hover { box-shadow: 0 0 24px rgba(148,163,184,0.35), inset 0 0 12px rgba(148,163,184,0.07); }
+        .val-sky { text-shadow: 0 0 10px rgba(56,189,248,0.7), 0 0 28px rgba(56,189,248,0.35); }
+        .val-ambar { text-shadow: 0 0 10px rgba(251,191,36,0.7), 0 0 28px rgba(251,191,36,0.35); }
+        .val-verde { text-shadow: 0 0 10px rgba(34,197,94,0.7), 0 0 28px rgba(34,197,94,0.35); }
+        .val-gris { text-shadow: 0 0 10px rgba(148,163,184,0.6), 0 0 28px rgba(148,163,184,0.3); }
+        .barra-atardecer { background: linear-gradient(90deg, #22d3ee, #ff2ea6, #ff7a18); }
+        .btn-atardecer {
+            background: linear-gradient(90deg, #22d3ee, #ff2ea6, #ff7a18);
+            color: #000;
+            box-shadow: 0 0 18px rgba(255,46,166,0.45), 0 0 32px rgba(0,229,255,0.25);
+        }
+        .btn-atardecer:hover { filter: brightness(1.15); }
     </style>
 </head>
-<body class="bg-black text-cyan-50 font-mono p-3 md:p-6 selection:bg-cyan-500 selection:text-black min-h-screen">
+<body class="text-cyan-50 font-mono p-3 md:p-6 selection:bg-sky-500 selection:text-black min-h-screen">
+    <noscript><p style="color:#f87171;text-align:center;padding:1rem">Esta página necesita JavaScript activado para funcionar.</p></noscript>
     
     <!-- DASHBOARD SUPERIOR -->
-    <header class="max-w-7xl mx-auto mb-4 pb-3 border-b border-cyan-800 flex flex-col md:flex-row justify-between items-center gap-3">
-        <div class="text-center md:text-left">
-            <h1 class="font-display text-xl md:text-2xl font-bold text-cyan-400 uppercase tracking-widest">Evaluador musical</h1>
-            <p class="text-cyan-500 text-xs md:text-xs">Un calificador bonito de música</p>
+    <header class="max-w-7xl mx-auto mb-3 pb-3 flex flex-col md:flex-row justify-between items-center gap-3">
+        <div class="w-full md:w-auto text-center md:text-left">
+            <h1 class="font-display text-3xl md:text-4xl font-bold text-cyan-400 uppercase tracking-widest titulo-neon text-center md:text-left">Evaluador musical</h1>
+            <p class="text-sky-500 text-xs md:text-xs uppercase tracking-widest text-center md:text-left">Hecho por Gémini y mejorado por Muse</p>
         </div>
         
+        <div id="barra-carga" aria-hidden="true" class="fixed top-0 left-0 w-full h-[3px] linea-atardecer z-50"></div>
         <!-- ESTADÍSTICAS RESPONSIVAS -->
-        <div class="grid grid-cols-4 gap-2 w-full md:w-auto text-[11px] md:text-xs uppercase tracking-wide">
-            <div class="bg-gray-950 border border-cyan-900 p-2 text-center rounded"><span class="text-gray-500 block text-[11px]">Total canciones</span><span id="stat-total" class="text-cyan-400 font-bold">0</span></div>
-            <div class="bg-gray-950 border border-cyan-900 p-2 text-center rounded"><span class="text-gray-500 block text-[11px]">Calif. promedio</span><span id="stat-promedio" class="text-yellow-400 font-bold">0.0</span></div>
-            <div class="bg-gray-950 border border-cyan-900 p-2 text-center rounded"><span class="text-gray-500 block text-[11px]">Canciones God</span><span id="stat-top" class="text-yellow-400 font-bold">0</span></div>
-            <div class="bg-gray-950 border border-cyan-900 p-2 text-center rounded"><span class="text-gray-500 block text-[11px]">Pendientes</span><span id="stat-pending" class="text-gray-400 font-bold">0</span></div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full md:w-auto text-xs md:text-sm uppercase tracking-wide">
+            <div class="relative overflow-hidden bg-[#0f1a36] border p-3 text-center rounded-3xl transition-transform hover:-translate-y-0.5 stat-sky"><span class="absolute top-0 left-0 w-full h-1 bg-sky-500"></span><span class="text-gray-500 block text-[11px] uppercase tracking-widest">Total canciones</span><span id="stat-total" class="text-sky-400 font-bold text-3xl md:text-3xl val-sky animate-pulse">—</span><span class="block text-[10px] text-gray-500 mt-0.5 normal-case tracking-normal">en el catálogo</span></div>
+            <div class="relative overflow-hidden bg-[#0f1a36] border p-3 text-center rounded-3xl transition-transform hover:-translate-y-0.5 stat-ambar"><span class="absolute top-0 left-0 w-full h-1 bg-yellow-400"></span><span class="text-gray-500 block text-[11px] uppercase tracking-widest">Calif. promedio</span><span id="stat-promedio" class="text-yellow-400 font-bold text-3xl md:text-3xl val-ambar animate-pulse">—</span><span class="block text-[10px] text-gray-500 mt-0.5 normal-case tracking-normal">de 20</span></div>
+            <div class="relative overflow-hidden bg-[#0f1a36] border p-3 text-center rounded-3xl transition-transform hover:-translate-y-0.5 stat-verde"><span class="absolute top-0 left-0 w-full h-1 bg-[#22c55e]"></span><span class="text-gray-500 block text-[11px] uppercase tracking-widest">Canciones God</span><span id="stat-top" class="text-[#22c55e] font-bold text-3xl md:text-3xl val-verde animate-pulse">—</span><span id="stat-top-ctx" class="block text-[10px] text-gray-500 mt-0.5 normal-case tracking-normal">—</span></div>
+            <div class="relative overflow-hidden bg-[#0f1a36] border p-3 text-center rounded-3xl transition-transform hover:-translate-y-0.5 stat-gris"><span class="absolute top-0 left-0 w-full h-1 bg-gray-400"></span><span class="text-gray-500 block text-[11px] uppercase tracking-widest">Pendientes</span><span id="stat-pending" class="text-gray-400 font-bold text-3xl md:text-3xl val-gris animate-pulse">—</span><span id="stat-pending-ctx" class="block text-[10px] text-gray-500 mt-0.5 normal-case tracking-normal">—</span></div>
         </div>
     </header>
+    <div class="max-w-7xl mx-auto h-[3px] linea-atardecer rounded mb-4"></div>
 
     <!-- PESTAÑAS NAVEGACIÓN MÓVIL (Solo visibles en celulares) -->
-    <div role="tablist" class="flex md:hidden mb-4 border border-cyan-900 rounded overflow-hidden text-xs">
-        <button role="tab" id="tab-btn-cat" onclick="switchTab('cat')" class="flex-1 py-2.5">Catálogo</button>
-        <button role="tab" id="tab-btn-rub" onclick="switchTab('rub')" class="flex-1 py-2.5">Evaluar</button>
-        <button role="tab" id="tab-btn-reg" onclick="switchTab('reg')" class="flex-1 py-2.5">Agregar</button>
-        <button role="tab" id="tab-btn-rad" onclick="switchTab('rad')" class="flex-1 py-2.5">Radar</button>
+    <div role="tablist" class="flex md:hidden mb-4 gap-2 text-xs sticky top-2 z-40 bg-[#040b1a] border border-sky-900 rounded-full p-1">
+        <button role="tab" id="tab-btn-cat" aria-selected="true" onclick="switchTab('cat')" class="flex-1 min-w-0 py-4 px-1 text-xs truncate rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.45)] tab-top">Top</button>
+        <button role="tab" id="tab-btn-rub" aria-selected="false" onclick="switchTab('rub')" class="flex-1 min-w-0 py-4 px-1 text-xs truncate rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.45)]">Evaluar</button>
+        <button role="tab" id="tab-btn-reg" aria-selected="false" onclick="switchTab('reg')" class="flex-1 min-w-0 py-4 px-1 text-xs truncate rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.45)]">Agregar</button>
+        <button role="tab" id="tab-btn-gra" aria-selected="false" onclick="switchTab('gra')" class="flex-1 min-w-0 py-4 px-1 text-xs truncate rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.45)]">Gráficas</button>
     </div>
+
+    <!-- NAVEGACION SUPERIOR (PC): los 4 espacios, fijos bajo el titulo -->
+    <nav class="hidden md:flex sticky top-2 z-40 gap-2 mb-4 bg-[#0f1a36] border border-sky-900 rounded-full p-1 text-sm uppercase tracking-widest shadow-[0_8px_24px_rgba(0,0,0,0.55)]">
+        <a href="#section-catalogo" onclick="marcarNav(this)" class="flex-1 text-center py-3 rounded-full tab-top">Top</a>
+        <a href="#section-rubrica" onclick="marcarNav(this)" class="flex-1 text-center py-3 rounded-full hover:bg-sky-950 text-gray-300">Evaluar</a>
+        <a href="#section-registro" onclick="marcarNav(this)" class="flex-1 text-center py-3 rounded-full hover:bg-sky-950 text-gray-300">Agregar</a>
+        <a href="#section-graficas" onclick="marcarNav(this)" class="flex-1 text-center py-3 rounded-full hover:bg-sky-950 text-gray-300">Gráficas</a>
+    </nav>
 
     <!-- CONTENEDOR PRINCIPAL -->
     <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -90,104 +189,128 @@
         <div class="md:col-span-5 space-y-4">
             
             <!-- CONTENEDOR REGISTRO -->
-            <div id="section-registro" class="hidden md:block bg-gray-950 p-4 rounded border border-cyan-800 relative">
-                <div class="absolute top-0 left-0 w-full h-1 bg-cyan-600"></div>
-                <h2 class="text-xs font-bold text-cyan-500 mb-3 uppercase tracking-widest">> Agregar canción</h2>
-                <input id="titulo" onkeydown="if(event.key==='Enter')conBloqueo(agregarCancion)" aria-label="Título de la canción" type="text" maxlength="80" placeholder="Canción" class="w-full mb-3 p-3 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 uppercase text-xs rounded">
-                <input id="artista" onkeydown="if(event.key==='Enter')conBloqueo(agregarCancion)" aria-label="Artista" type="text" maxlength="80" placeholder="Artista" class="w-full mb-3 p-3 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 uppercase text-xs rounded">
-                
+            <div id="section-registro" class="hidden md:block panel-fondo p-4 rounded border panel-neon relative">
+                <div class="absolute top-0 left-0 w-full h-1 barra-atardecer"></div>
+                <h2 class="text-xs font-bold text-sky-500 mb-3 uppercase tracking-widest brillo-titulo">> Agregar canción</h2>
+                <label for="titulo" class="block text-[11px] text-sky-500 uppercase tracking-widest mb-1">Título</label>
+                <input id="titulo" oninput="revisarDuplicado()" onkeydown="if(event.key==='Enter')conBloqueo(()=>agregarCancion(false), 'agregar')" aria-label="Título de la canción" type="text" maxlength="200" placeholder="Canción" class="w-full mb-3 p-3 bg-[#0f1a36] text-sky-300 border border-sky-900 focus:outline-none focus:border-sky-400 uppercase text-xs rounded">
+                <label for="artista" class="block text-[11px] text-sky-500 uppercase tracking-widest mb-1">Artista</label>
+                <input id="artista" onfocus="cargarArtistasCompletos()" oninput="revisarDuplicado()" onkeydown="if(event.key==='Enter')conBloqueo(()=>agregarCancion(false), 'agregar')" aria-label="Artista" type="text" list="lista-artistas" maxlength="200" placeholder="Artista" class="w-full mb-3 p-3 bg-[#0f1a36] text-sky-300 border border-sky-900 focus:outline-none focus:border-sky-400 uppercase text-xs rounded">
+                <datalist id="lista-artistas"></datalist>
+                <p id="aviso-artista" class="hidden text-[11px] text-yellow-400 mb-3">Ese artista ya existe como <button type="button" onclick="usarArtistaSugerido()" id="artista-sugerido" class="underline font-bold"></button> — toca para usar ese nombre.</p>
+                <label for="reg-invitados" class="block text-[11px] text-sky-500 uppercase tracking-widest mb-1">Artistas invitados (coma)</label>
+                <input id="reg-invitados" aria-label="Artistas invitados, separados por coma" type="text" maxlength="200" placeholder="Invitado1, Invitado2" class="w-full mb-3 p-3 bg-[#0f1a36] text-sky-300 border border-sky-900 focus:outline-none focus:border-sky-400 uppercase text-xs rounded">
+                <label for="reg-productor" class="block text-[11px] text-sky-500 uppercase tracking-widest mb-1">Productor (opcional)</label>
+                <input id="reg-productor" aria-label="Productor, opcional" type="text" maxlength="200" placeholder="Productor" class="w-full mb-3 p-3 bg-[#0f1a36] text-sky-300 border border-sky-900 focus:outline-none focus:border-sky-400 uppercase text-xs rounded">
+
                 <div class="grid grid-cols-2 gap-2 mb-3">
-           <select id="reg-genero" aria-label="Género" class="w-full p-2.5 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 uppercase text-xs rounded cursor-pointer"></select>
-           <select id="reg-etiqueta" aria-label="Tipo de versión" class="w-full p-2.5 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 uppercase text-xs rounded cursor-pointer">
-    <option value="Original" selected>Original</option>
-    <option value="Remix">Remix</option>
-    <option value="Slowed Reverb">Slowed + Reverb</option>
-    <option value="Cover">Cover</option>
-    <option value="Fragmento">Fragmento</option>
-</select>
+           <div><label for="reg-genero" class="block text-[11px] text-sky-500 uppercase tracking-widest mb-1">Género</label>
+           <select id="reg-genero" aria-label="Género" class="w-full p-2.5 bg-[#0f1a36] text-sky-300 border border-sky-900 focus:outline-none focus:border-sky-400 uppercase text-xs rounded cursor-pointer"></select></div>
+           <div><label for="reg-etiqueta" class="block text-[11px] text-sky-500 uppercase tracking-widest mb-1">Tipo de versión</label>
+           <select id="reg-etiqueta" aria-label="Tipo de versión" class="w-full p-2.5 bg-[#0f1a36] text-sky-300 border border-sky-900 focus:outline-none focus:border-sky-400 uppercase text-xs rounded cursor-pointer"></select></div>
                 </div>
-                
-                <button onclick="conBloqueo(agregarCancion)" class="w-full bg-cyan-900 hover:bg-cyan-600 text-black font-bold py-3 uppercase tracking-widest text-xs transition-all rounded">Añadir canción</button>
+                <div class="grid grid-cols-2 gap-2 mb-3">
+                    <label class="flex items-center space-x-2 text-gray-300 text-xs py-1 cursor-pointer"><input type="checkbox" id="reg-instrumental" class="w-4 h-4 accent-sky-500"> <span>Instrumental</span></label>
+                    <label class="flex items-center space-x-2 text-gray-300 text-xs py-1 cursor-pointer"><input type="checkbox" id="reg-banda-sonora" class="w-4 h-4 accent-amber-500"> <span>Banda sonora</span></label>
+                </div>
+                <div id="aviso-duplicado" class="hidden mb-3 p-3 border border-yellow-700 bg-yellow-950/40 rounded">
+                    <p class="text-[11px] text-yellow-300 uppercase tracking-widest mb-1">Esa canción ya existe</p>
+                    <p id="duplicado-nombre" class="text-xs text-gray-200 mb-2 break-words"></p>
+                    <button type="button" onclick="irADuplicado()" class="text-xs text-yellow-300 underline font-bold uppercase">Ir a calificarla</button>
+                </div>
+
+                <button id="btn-agregar" onclick="conBloqueo(()=>agregarCancion(false), 'agregar')" class="w-full btn-atardecer font-bold py-3 uppercase tracking-widest text-xs transition-all rounded disabled:opacity-50 min-h-[44px]">Añadir canción</button>
+                <button id="btn-agregar-seguir" onclick="conBloqueo(()=>agregarCancion(true), 'agregar')" class="w-full mt-2 border border-sky-800 hover:bg-sky-950 text-sky-300 font-bold py-3 uppercase tracking-widest text-xs transition-all rounded disabled:opacity-50 min-h-[44px]">Añadir y seguir agregando</button>
             </div>
 
             <!-- CONTENEDOR RÚBRICA -->
-            <div id="section-rubrica" class="hidden md:block bg-gray-950 p-4 rounded border border-fuchsia-900 relative">
-                <div class="absolute top-0 left-0 w-full h-1 bg-fuchsia-600"></div>
+            <div id="section-rubrica" class="hidden md:block panel-fondo p-4 rounded border panel-neon relative">
+                <div class="absolute top-0 left-0 w-full h-1 barra-atardecer"></div>
                 <div class="flex justify-between items-center mb-3">
-                    <h2 class="text-xs font-bold text-fuchsia-500 uppercase tracking-widest">> Métricas</h2>
-                    <button onclick="limpiarFormulario(false)" class="text-xs text-gray-400 hover:text-white border border-gray-700 px-2 py-1 rounded">Borrar</button>
+                    <h2 class="text-xs font-bold text-sky-500 uppercase tracking-widest brillo-titulo">> Evaluar</h2>
+                    <button onclick="limpiarFormulario(false)" class="text-xs text-sky-300 hover:text-sky-100 border border-sky-500 px-3 py-2 rounded min-h-[44px]">Limpiar</button>
                 </div>
                 
                 <input id="id_cancion" type="hidden">
-                <p id="cancion-activa" class="text-center text-sm text-fuchsia-300 mb-4 p-2.5 border border-fuchsia-900 rounded break-words">Selecciona una canción en el catálogo</p>
+                <p id="cancion-activa" class="text-center text-sm text-sky-300 mb-1 p-2.5 border border-sky-900 rounded break-words">Selecciona una canción en el catálogo</p>
+                <p id="cancion-contexto" class="text-center text-[11px] text-gray-400 mb-3"></p>
+                <button id="btn-editar-activa" onclick="editarActiva()" class="hidden w-full mb-3 border border-yellow-600 hover:bg-yellow-950/40 text-yellow-400 font-bold py-2 uppercase tracking-widest text-[11px] rounded min-h-[44px]">Editar</button>
+                <button id="btn-siguiente-sin-calificar" onclick="siguienteSinCalificar()" class="w-full mb-4 border border-sky-900 hover:bg-sky-950 text-sky-300 font-bold py-2 uppercase tracking-widest text-[11px] rounded min-h-[44px]">Siguiente sin calificar</button>
                 
                 <div class="space-y-4 mb-4">
-                    <div><label for="ritmo" class="flex justify-between text-xs text-gray-300 mb-1">RITMO (35%) <span id="val_ritmo" class="text-fuchsia-400 font-bold">5.0</span></label><input id="ritmo" type="range" min="0" max="10" step="0.1" value="5" class="w-full" oninput="actualizarValores()"></div>
-                    <div><label for="letras" class="flex justify-between text-xs text-gray-300 mb-1">LETRAS (25%) <span id="val_letras" class="text-fuchsia-400 font-bold">5.0</span></label><input id="letras" type="range" min="0" max="10" step="0.1" value="5" class="w-full" oninput="actualizarValores()"></div>
-                    <div><label for="coro" class="flex justify-between text-xs text-gray-300 mb-1">CORO (40%) <span id="val_coro" class="text-fuchsia-400 font-bold">5.0</span></label><input id="coro" type="range" min="0" max="10" step="0.1" value="5" class="w-full" oninput="actualizarValores()"></div>
-                    <div class="pt-2 border-t border-fuchsia-950"><label for="importancia" class="flex justify-between text-xs text-yellow-500 mb-1">IMPORTANCIA (MAX 5) <span id="val_importancia" class="text-yellow-400 font-bold">2.5</span></label><input id="importancia" type="range" min="0" max="5" step="0.1" value="2.5" class="w-full accent-yellow-500" oninput="actualizarValores()"></div>
+                    <p class="text-[11px] text-gray-500 uppercase tracking-widest brillo-titulo">Calificación base</p>
+                    <div><label for="ritmo" class="flex justify-between text-xs text-gray-300 mb-1"><span>RITMO <span class="text-cyan-400 font-bold">· 35%</span></span> <span id="val_ritmo" class="text-cyan-400 font-bold">5.0</span></label><input id="ritmo" type="range" min="0" max="10" step="0.1" value="5" class="w-full slider-cian" oninput="actualizarValores()"></div>
+                    <div><label for="letras" class="flex justify-between text-xs text-gray-300 mb-1"><span>LETRAS <span class="text-fuchsia-400 font-bold">· 25%</span></span> <span id="val_letras" class="text-fuchsia-400 font-bold">5.0</span></label><input id="letras" type="range" min="0" max="10" step="0.1" value="5" class="w-full slider-fuchsia" oninput="actualizarValores()"></div>
+                    <div><label for="coro" class="flex justify-between text-xs text-gray-300 mb-1"><span>CORO <span class="text-violet-400 font-bold">· 40%</span></span> <span id="val_coro" class="text-violet-400 font-bold">5.0</span></label><input id="coro" type="range" min="0" max="10" step="0.1" value="5" class="w-full slider-violeta" oninput="actualizarValores()"></div>
+                </div>
+                <div class="pt-3 mt-1 border-t border-yellow-900/60 mb-4">
+                    <p class="text-[11px] text-yellow-500 uppercase tracking-widest mb-3 brillo-titulo-amarillo">Importancia · aparte · máximo 5</p>
+                    <p class="text-[11px] text-gray-500 mb-2">Va separada de la calificación base. Se suma aparte.</p>
+                    <div><label for="importancia" class="flex justify-between text-xs text-yellow-500 mb-1">IMPORTANCIA <span id="val_importancia" class="text-yellow-400 font-bold">2.5</span></label><input id="importancia" type="range" min="0" max="5" step="0.1" value="2.5" class="w-full slider-ambar" oninput="actualizarValores()"></div>
                 </div>
                 
-                <div class="grid grid-cols-2 gap-2 mb-4 bg-black p-3 border border-fuchsia-950 text-xs rounded">
-                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer"><input type="checkbox" id="antiguedad" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Antigüedad</span></label>
-                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer"><input type="checkbox" id="nostalgia" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Nostalgia</span></label>
-                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer"><input type="checkbox" id="complejidad" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Complejidad</span></label>
+                <div class="space-y-2 mb-4 bg-[#12233f] p-3 border border-sky-950 text-xs rounded">
+                    <label class="flex items-center space-x-3 text-gray-300 py-2 px-2 cursor-pointer rounded hover:bg-sky-950/40"><input type="checkbox" id="antiguedad" class="w-5 h-5 flex-shrink-0 accent-sky-500" onchange="actualizarValores()"> <span> Antigüedad <span class="block text-[10px] text-gray-500">Llevo mucho tiempo conociéndola</span></span></label>
+                    <label class="flex items-center space-x-3 text-gray-300 py-2 px-2 cursor-pointer rounded hover:bg-sky-950/40"><input type="checkbox" id="nostalgia" class="w-5 h-5 flex-shrink-0 accent-sky-500" onchange="actualizarValores()"> <span> Nostalgia <span class="block text-[10px] text-gray-500">Me genera nostalgia</span></span></label>
+                    <label class="flex items-center space-x-3 text-gray-300 py-2 px-2 cursor-pointer rounded hover:bg-sky-950/40"><input type="checkbox" id="complejidad" class="w-5 h-5 flex-shrink-0 accent-sky-500" onchange="actualizarValores()"> <span> Complejidad <span class="block text-[10px] text-gray-500">Me parecen complejas</span></span></label>
                     <!-- Etiqueta de Recomendación cambiada a Descubrimiento Único -->
-                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer"><input type="checkbox" id="recomendacion" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Descubrimiento único</span></label>
-                    <label class="flex items-center space-x-2 text-gray-300 py-1 cursor-pointer col-span-2"><input type="checkbox" id="arte_visual" class="w-4 h-4 accent-fuchsia-500" onchange="actualizarValores()"> <span> Arte Visual</span></label>
+                    <label class="flex items-center space-x-3 text-gray-300 py-2 px-2 cursor-pointer rounded hover:bg-sky-950/40"><input type="checkbox" id="descubrimiento_unico" class="w-5 h-5 flex-shrink-0 accent-sky-500" onchange="actualizarValores()"> <span> Descubrimiento único <span class="block text-[10px] text-gray-500">La descubrí de forma importante: gusto heredado, un amigo la recomendó…</span></span></label>
+                    <label class="flex items-center space-x-3 text-gray-300 py-2 px-2 cursor-pointer rounded hover:bg-sky-950/40"><input type="checkbox" id="arte_visual" class="w-5 h-5 flex-shrink-0 accent-sky-500" onchange="actualizarValores()"> <span> Arte Visual <span class="block text-[10px] text-gray-500">Los videos y fotos de la canción</span></span></label>
                 </div>
                 
-                <button onclick="conBloqueo(calificarCancion)" class="w-full bg-fuchsia-800 hover:bg-fuchsia-600 text-black font-bold py-3 uppercase tracking-widest text-xs transition-all rounded">Actualizar calificación</button>
+                <button id="btn-calificar" onclick="conBloqueo(calificarCancion, 'calificar')" class="w-full btn-atardecer font-bold py-3 uppercase tracking-widest text-xs transition-all rounded disabled:opacity-50 min-h-[44px]">Guardar calificación</button>
             </div>
-            <!-- RADAR -->
-            <div id="section-radar" class="hidden md:block bg-gray-950 p-4 rounded border border-yellow-700 relative">
-                <div class="absolute top-0 left-0 w-full h-1 bg-yellow-500"></div>
-                <h2 class="font-display text-sm font-bold text-yellow-400 mb-1">Radar del top 5</h2>
-                <p class="text-xs text-gray-400 mb-3">Elige el criterio del top. En la gráfica los ejes se dibujan de 0 a 10.</p>
-                <div id="radar-criterio" role="group" aria-label="Criterio del radar" class="flex flex-wrap gap-1.5 mb-3"></div>
-                <svg id="radar" viewBox="0 0 340 320" class="w-full max-w-sm mx-auto" role="img" aria-label="Gráfica de radar de las mejores canciones"></svg>
-                <ul id="radar-leyenda" class="mt-3 space-y-1.5 text-xs"></ul>
-                <h3 class="font-display text-sm font-bold text-cyan-400 mt-5 mb-2">Promedio por género</h3>
-                <ul id="generos-stats" class="space-y-2 text-xs"></ul>
+            <!-- HISTOGRAMA (reemplaza al radar) -->
+            <div id="section-graficas" class="hidden md:block panel-fondo p-4 rounded border panel-neon relative">
+                <div class="absolute top-0 left-0 w-full h-1 barra-atardecer"></div>
+                <h2 class="font-display text-sm font-bold text-sky-400 mb-1 brillo-titulo">> Gráficas</h2>
+                <h3 class="text-xs font-bold text-sky-500 mb-1 uppercase tracking-widest brillo-titulo">Distribución de notas</h3>
+                <p class="text-xs text-gray-400 mb-3">Toca una barra para filtrar el catálogo por ese rango.</p>
+                <div id="histograma" class="space-y-2"><div><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-12"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 esqueleto rounded" style="width:35%"></div></div></div><div><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-12"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 esqueleto rounded" style="width:55%"></div></div></div><div><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-12"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 esqueleto rounded" style="width:80%"></div></div></div><div><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-12"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 esqueleto rounded" style="width:100%"></div></div></div><div><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-12"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 esqueleto rounded" style="width:70%"></div></div></div><div><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-12"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 esqueleto rounded" style="width:40%"></div></div></div></div>
+                <button id="quitar-rango" onclick="quitarRango()" class="hidden mt-3 w-full text-xs text-sky-300 border border-sky-500 px-2 py-2 rounded-full hover:border-sky-300 min-h-[44px]">Quitar filtro de rango</button>
+                <div class="bg-[#0f1a36] p-3 rounded border border-sky-900 mt-5">
+                    <h3 class="font-display text-sm font-bold text-sky-400 mb-2 brillo-titulo">Promedio por género</h3>
+                    <ul id="generos-stats" class="space-y-2 text-xs"><li><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-20"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-1.5 bg-[#0f1a36] rounded mt-1"><div class="h-1.5 esqueleto rounded" style="width:90%"></div></div></li><li><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-20"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-1.5 bg-[#0f1a36] rounded mt-1"><div class="h-1.5 esqueleto rounded" style="width:80%"></div></div></li><li><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-20"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-1.5 bg-[#0f1a36] rounded mt-1"><div class="h-1.5 esqueleto rounded" style="width:70%"></div></div></li><li><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-20"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-1.5 bg-[#0f1a36] rounded mt-1"><div class="h-1.5 esqueleto rounded" style="width:60%"></div></div></li><li><div class="flex justify-between gap-2"><div class="h-3 esqueleto rounded w-20"></div><div class="h-3 esqueleto rounded w-16"></div></div><div class="h-1.5 bg-[#0f1a36] rounded mt-1"><div class="h-1.5 esqueleto rounded" style="width:50%"></div></div></li></ul>
+                </div>
             </div>
         </div>
 
         <!-- COLUMNA DERECHA (CATÁLOGO Y BÚSQUEDA) -->
-        <div id="section-catalogo" class="md:col-span-7 bg-gray-950 p-4 rounded border border-cyan-800 flex flex-col md:flex min-h-[500px]">
+        <div id="section-catalogo" class="hidden md:flex md:col-span-7 panel-fondo p-4 rounded-3xl border panel-neon flex-col min-h-[500px]">
             
-            <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mb-3 gap-2 pb-2 border-b border-cyan-900">
-                <h2 class="text-xs font-bold text-cyan-500 uppercase tracking-widest flex items-center">Tabla de clasificación</h2>
+            <div class="flex flex-col sm:flex-row justify-between items-stretch sm:items-center mb-3 gap-2 pb-2 border-b border-sky-900">
+                <h2 class="text-xs font-bold text-sky-500 uppercase tracking-widest flex items-center brillo-titulo">> Top · Tabla de clasificación</h2>
                 
                 <div class="grid grid-cols-2 sm:flex sm:items-center gap-2">
                     <input type="hidden" id="filtro-genero" value="todos">
-                    <select id="select-orden" aria-label="Ordenar por" onchange="cargarCatalogo(1)" class="col-span-2 sm:col-span-1 bg-black text-cyan-300 border border-cyan-900 p-2 text-xs uppercase focus:outline-none rounded cursor-pointer w-full sm:w-auto">
+                    <select id="select-orden" aria-label="Ordenar por" onchange="cargarCatalogo(1)" class="col-span-2 sm:col-span-1 bg-[#0f1a36] text-sky-300 border border-sky-600 p-2 text-xs uppercase focus:outline-none rounded-full cursor-pointer w-full sm:w-auto">
                         <option value="top">Mejores (Top)</option>
                         <option value="peores">Peores</option>
                         <option value="recientes">Recientes</option>
                         <option value="alfabetico">A - Z</option>
                         <option value="sin_calificar">Sin calificar</option><option value="ritmo">Mejor ritmo</option><option value="letras">Mejores letras</option><option value="coro">Mejor coro</option><option value="importancia">Más importantes</option>
                     </select>
-                    <input id="input-buscar" aria-label="Buscar canciones" type="text" placeholder="BUSCAR..." class="p-2 bg-black text-cyan-300 border border-cyan-900 focus:outline-none focus:border-cyan-400 text-xs uppercase col-span-2 sm:col-span-1 w-full sm:w-32 rounded" oninput="debounceBuscar()" onkeydown="if(event.key === 'Enter'){ clearTimeout(searchTimeout); cargarCatalogo(1); }">
-                    <button onclick="cargarCatalogo(1)" class="col-span-2 sm:col-span-1 border border-cyan-600 text-cyan-400 hover:bg-cyan-900 px-3 py-2 text-xs uppercase rounded transition">Buscar</button>
+                    <input id="input-buscar" aria-label="Buscar canciones" type="text" placeholder="BUSCAR..." class="p-2 bg-[#0f1a36] text-sky-300 border border-sky-600 focus:outline-none focus:border-sky-400 text-xs uppercase col-span-2 sm:col-span-1 w-full sm:w-32 rounded-full" oninput="debounceBuscar()" onkeydown="if(event.key === 'Enter'){ clearTimeout(searchTimeout); cargarCatalogo(1); }">
+                    <button onclick="cargarCatalogo(1)" class="col-span-2 sm:col-span-1 border border-sky-500 text-sky-400 hover:bg-sky-900 px-3 py-2 text-xs uppercase rounded-full transition min-h-[44px]">Buscar</button>
                 </div>
             </div>
             
-            <div class="flex flex-wrap items-center gap-2 mb-2 text-xs"><span class="text-gray-400">Respaldo:</span><button onclick="exportar('csv')" class="border border-cyan-700 text-cyan-300 hover:bg-cyan-900 px-3 py-1.5 rounded">Exportar CSV</button><button onclick="exportar('json')" class="border border-cyan-700 text-cyan-300 hover:bg-cyan-900 px-3 py-1.5 rounded">Exportar JSON</button></div>
+            <div class="flex flex-wrap items-center gap-2 mb-2 text-xs"><span class="text-gray-400">Respaldo:</span><button onclick="exportar('csv')" class="border border-sky-500 text-sky-300 hover:bg-sky-900 px-3 py-2 rounded-full min-h-[44px]">Exportar CSV</button><button onclick="exportar('json')" class="border border-sky-500 text-sky-300 hover:bg-sky-900 px-3 py-2 rounded-full min-h-[44px]">Exportar JSON</button></div>
             <div id="chips-genero" role="group" aria-label="Filtrar por género" class="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-2"></div>
             <div id="lista_canciones" class="space-y-2.5 overflow-y-auto pr-1 flex-1"></div>
         </div>
     </div>
 
     <!-- NOTIFICACIONES Y MODALES -->
-    <div id="toast-container" role="status" aria-live="polite" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 max-w-[90vw]"></div>
+    <div id="toast-container" role="status" aria-live="polite" class="fixed bottom-5 right-5 max-md:top-16 max-md:bottom-auto z-50 flex flex-col space-y-2 max-w-[90vw]"></div>
 
-    <div id="custom-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-gray-950 border border-cyan-500 p-5 rounded shadow-[0_0_20px_rgba(6,182,212,0.4)] max-w-md w-full">
-            <h3 id="modal-title" class="text-sm font-bold text-cyan-400 mb-3 uppercase tracking-widest">ATENCIÓN</h3>
+    <div id="custom-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" onclick="if(event.target===this) closeModal(false)" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="panel-fondo p-5 rounded-3xl border panel-neon modal-anim max-w-md w-full">
+            <h3 id="modal-title" class="text-sm font-bold text-sky-400 mb-3 uppercase tracking-widest brillo-titulo">ATENCIÓN</h3>
             <div id="modal-content" class="mb-4 space-y-3"></div>
             <div class="flex justify-end space-x-3">
-                <button onclick="closeModal(false)" class="text-gray-400 hover:text-gray-200 text-xs uppercase py-2 px-3">CANCELAR</button>
-                <button id="modal-confirm-btn" onclick="closeModal(true)" class="bg-cyan-800 hover:bg-cyan-600 text-black px-4 py-2 uppercase font-bold text-xs rounded">CONFIRMAR</button>
+                <button onclick="closeModal(false)" class="text-gray-400 hover:text-gray-200 text-xs uppercase py-2 px-3 min-h-[44px]">CANCELAR</button>
+                <button id="modal-confirm-btn" onclick="closeModal(true)" class="btn-atardecer px-4 py-2 uppercase font-bold text-xs rounded min-h-[44px]">CONFIRMAR</button>
             </div>
         </div>
     </div>
