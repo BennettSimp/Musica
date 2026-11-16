@@ -698,12 +698,18 @@ int main() {
             ConnectionGuard guard(*db_pool);
             pqxx::nontransaction N(guard.get());
             pqxx::result r = N.exec(
+                // La consulta va en subconsulta: Postgres no deja usar el alias
+                // 'rango' dentro del CASE del ORDER BY con GROUP BY
+                // (error en vivo: column "rango" does not exist). Afuera 'rango'
+                // ya es una columna real y el ORDER BY funciona.
+                "SELECT rango, total FROM ("
                 "SELECT CASE WHEN COALESCE(calificacion_final,0) = 0 THEN 'sin_calificar' "
                 "WHEN calificacion_final > 0 AND calificacion_final < 10 THEN 'menos-10' "
                 "WHEN calificacion_final < 12 THEN '10-12' WHEN calificacion_final < 14 THEN '12-14' "
                 "WHEN calificacion_final < 16 THEN '14-16' WHEN calificacion_final < 18 THEN '16-18' "
                 "WHEN calificacion_final < 19 THEN '18-19' ELSE '19-20' END AS rango, COUNT(*) AS total "
-                "FROM canciones GROUP BY 1 ORDER BY CASE WHEN rango = 'sin_calificar' THEN 99 WHEN rango = 'menos-10' THEN 0 "
+                "FROM canciones GROUP BY 1) s "
+                "ORDER BY CASE WHEN rango = 'sin_calificar' THEN 99 WHEN rango = 'menos-10' THEN 0 "
                 "ELSE CAST(SUBSTRING(rango FROM '^[0-9]+') AS INT) END");
             std::vector<crow::json::wvalue> lista;
             for (auto const& f : r)
