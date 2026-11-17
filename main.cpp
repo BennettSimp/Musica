@@ -364,7 +364,8 @@ static crow::response respuestaLimiteLectura(const std::string& donde) {
 // caracteres + campos), así que 64 KB sobra y un JSON de MBs no llega a
 // consumir memoria parseándolo.
 static const size_t LIMITE_CUERPO = 65536;
-static bool cuerpoDemasiadoGrande(const crow::request& req) { return req.body.size() > LIMITE_CUERPO; }
+static const size_t LIMITE_CUERPO_IMPORTAR = 2 * 1024 * 1024; // ronda 5, extras bloque 5: el export de 678 canciones ronda 1 MB; solo para /importar, con token de admin.
+static bool cuerpoDemasiadoGrande(const crow::request& req, size_t limite = LIMITE_CUERPO) { return req.body.size() > limite; }
 
 static std::string trim(const std::string& s) {
     size_t inicio = s.find_first_not_of(" \t\n\r");
@@ -415,21 +416,55 @@ static bool utf8Valido(const std::string& s) {
     return true;
 }
 
+// Cuenta caracteres Unicode (code points) en vez de bytes (ronda 5,
+// ChatGPT): std::string::size() mide bytes, pero el schema usa
+// char_length() (caracteres) y el frontend maxlength=200 (unidades
+// UTF-16: 1 por carácter BMP). 101 'é' = 202 bytes pero 101 caracteres:
+// con size() el backend lo rechazaba y la DB/el navegador lo admitían.
+// Se cuentan los bytes que NO son de continuación (10xxxxxx): en UTF-8
+// válido cada carácter tiene exactamente un byte inicial.
+static size_t contarCaracteresUtf8(const std::string& s) {
+    size_t n = 0;
+    for (unsigned char c : s) if ((c & 0xC0) != 0x80) n++;
+    return n;
+}
+
+// parseEntero/parseDoble ESTRICTOS (ronda 5, ChatGPT): std::stoi/stod
+// aceptan caracteres sobrantes ("4abc" se interpretaba como 4). Ahora
+// se exige que la conversión consuma toda la cadena (s[pos] == '\0'),
+// si no, se devuelve el valor por defecto. Se mantiene que un valor
+// ausente o no numérico ("abc") también da el defecto.
 static int parseEntero(const char* s, int defecto) {
     if (!s || !*s) return defecto;
-    try { return std::stoi(s); } catch (...) { return defecto; }
+    try {
+        size_t pos = 0;
+        int v = std::stoi(s, &pos);
+        if (s[pos] != '\0') return defecto;
+        return v;
+    } catch (...) { return defecto; }
 }
 
 static double parseDoble(const char* s, double defecto) {
     if (!s || !*s) return defecto;
-    try { double v = std::stod(s); return std::isfinite(v) ? v : defecto; } catch (...) { return defecto; }
+    try {
+        size_t pos = 0;
+        double v = std::stod(s, &pos);
+        if (s[pos] != '\0') return defecto;
+        return std::isfinite(v) ? v : defecto;
+    } catch (...) { return defecto; }
 }
 
 static const std::vector<std::string> GENEROS_VALIDOS = {"Pop","Rock","Electronica","Rap","Trap","Reggaeton","R&B","Phonk","Banda","Corridos","Corridos Tumbados","Cumbia","Salsa","Baladas","Metal","Alternativo","Hardstyle","Merengue","Dembow","Reggae","Bachata","Afrobeats","Lofi","Hardcore","Clasica","Latino","Romanticas","Asiatica","Por clasificar"};
 static const std::vector<std::string> ETIQUETAS_VALIDAS = {"Original","Remix","Slowed Reverb","Sped Up","Cover","Acustico","En Vivo","Fragmento","Demo","Mashup","Edit"};
 static std::string validarTituloArtista(const std::string& titulo, const std::string& artista) {
     if (titulo.empty() || artista.empty()) return "Campos vacios.";
-    if (titulo.size() > 200 || artista.size() > 200) return "Titulo o artista demasiado largo.";
+    // UTF-8 inválido (incluido NUL) se rechaza con 400 antes de tocar la
+    // DB, como ya se hacía con buscar/genero (ronda 4, oleada 5): Postgres
+    // no admite UTF-8 inválido ni NUL en text y daría 500.
+    if (!utf8Valido(titulo) || !utf8Valido(artista)) return "Titulo o artista no valido.";
+    // Límite por CARACTERES (code points), coherente con el schema
+    // (char_length <= 200) y el frontend (maxlength=200): 101 'é' pasa.
+    if (contarCaracteresUtf8(titulo) > 200 || contarCaracteresUtf8(artista) > 200) return "Titulo o artista demasiado largo.";
     return "";
 }
 
@@ -577,7 +612,8 @@ static bool leerArtistasJson(const crow::json::rvalue& body, std::vector<Artista
         if (!it.has("nombre") || !esTexto(it["nombre"])) { error = "Cada artista necesita un nombre."; return false; }
         std::string nombre = trim(std::string(it["nombre"].s()));
         if (nombre.empty()) continue;
-        if (nombre.size() > 200) { error = "Nombre de artista demasiado largo."; return false; }
+        if (!utf8Valido(nombre)) { error = "Nombre de artista no valido."; return false; }
+        if (contarCaracteresUtf8(nombre) > 200) { error = "Nombre de artista demasiado largo."; return false; }
         std::string rol;
         if (!textoOpcional(it, "rol", "invitado", rol)) { error = "Rol de artista no valido."; return false; }
         if (!rolValido(rol)) { error = "Rol de artista no valido."; return false; }
@@ -857,7 +893,7 @@ int main() {
             if (excedeLimiteLectura(req)) return respuestaLimiteLectura("GET /api/canciones");
             int pagina = std::min(100000, std::max(1, parseEntero(req.url_params.get("pagina"), 1)));
             std::string buscar = req.url_params.get("buscar") ? req.url_params.get("buscar") : "";
-            if (buscar.size() > 100) buscar = truncarUtf8(buscar, 100); // S5: tope de 100 caracteres, sin partir UTF-8
+            if (buscar.size() > 100) buscar = truncarUtf8(buscar, 100); // S5: tope de 100 BYTES, sin partir UTF-8 (corrección de comentario ronda 5: no son 100 caracteres)
             std::string orden_param = req.url_params.get("orden") ? req.url_params.get("orden") : "top";
             std::string genero = req.url_params.get("genero") ? req.url_params.get("genero") : "todos";
             // UTF-8 inválido en `buscar` o `genero` (%FF, NUL, secuencias
@@ -1121,6 +1157,147 @@ int main() {
             logInfo("POST /api/canciones", "id=" + std::to_string(nuevoId));
             return respSegura(201, crow::json::wvalue({{"id", nuevoId}}));
         } catch (const std::exception &e) { return respuestaErrorDb("POST /api/canciones", e); }
+    });
+
+    // 3b. IMPORTAR RESPALDO (POST) — ronda 5, extras bloque 5 (ChatGPT:
+    // no había forma de restaurar un respaldo, solo de exportarlo).
+    // Acepta el JSON que devuelve GET /api/canciones/exportar
+    // ({"canciones": [...]}), con confirmar:true obligatorio (el
+    // frontend lo pide con un modal antes de enviar). Reglas:
+    // - Solo admin (mismo token que las demás escrituras).
+    // - Límite de cuerpo 2 MB (el export de 678 canciones ronda 1 MB),
+    //   no los 64 KB de las demás escrituras; máximo 2000 canciones.
+    // - Se valida TODO antes de insertar nada: si una canción es
+    //   inválida, no se importa ninguna y el 400 lista los errores
+    //   (máx. 10 en la lista; total_errores dice cuántos son).
+    // - El total se RECALCULA con la fórmula (nunca se confía en el
+    //   calificacion_final que traiga el archivo); una canción sin
+    //   ritmo/letras/coro/importancia se importa sin calificar, como
+    //   al agregarla (si trae solo parte de la nota, es error).
+    // - Los IDs del archivo se IGNORAN: cada canción importada recibe
+    //   un id nuevo. Las que ya existen (mismo título y artista, sin
+    //   distinguir mayúsculas) se OMITEN, no se duplican ni se
+    //   sobrescriben. Una sola transacción: todo o nada (salvo las
+    //   omitidas, que no son error).
+    // - Los IDs reasignados cambian el desempate final entre notas
+    //   exactamente iguales (último criterio: ID más antiguo): es el
+    //   precio de no chocar con los IDs que ya existen.
+    // - Campos tolerantes: etiqueta o etiqueta_especial; descubrimiento
+    //   o descubrimiento_terceros o desc_terc; el arreglo artistas
+    //   (export) manda sobre el artista plano, como en POST.
+    struct CancionImportada {
+        std::string titulo, artista, genero, etiqueta;
+        bool instrumental = false, banda_sonora = false;
+        bool tieneNota = false;
+        double ritmo = 0, letras = 0, coro = 0, importancia = 0, arte_visual = 0;
+        bool antiguedad = false, nostalgia = false, desc_terceros = false, complejidad = false;
+        double cal_final = 0;
+        std::vector<ArtistaEntrada> entradas;
+    };
+    CROW_ROUTE(app, "/api/canciones/importar").methods("POST"_method)([&db_pool](const crow::request& req) {
+        try {
+            if (int st = autorizado(req, "POST /api/canciones/importar")) return respuestaAuth(st);
+            if (cuerpoDemasiadoGrande(req, LIMITE_CUERPO_IMPORTAR)) return rechazo("POST /api/canciones/importar", 413, "Cuerpo demasiado grande.");
+            auto body = crow::json::load(req.body);
+            if (!body || body.t() != crow::json::type::Object) return rechazo("POST /api/canciones/importar", 400, "JSON no válido.");
+            if (!body.has("confirmar") || body["confirmar"].t() != crow::json::type::True) return rechazo("POST /api/canciones/importar", 400, "Falta confirmación.");
+            if (!body.has("canciones") || body["canciones"].t() != crow::json::type::List) return rechazo("POST /api/canciones/importar", 400, "Falta la lista de canciones.");
+            const auto& arr = body["canciones"];
+            if (arr.size() == 0) return rechazo("POST /api/canciones/importar", 400, "La lista de canciones está vacía.");
+            if (arr.size() > 2000) return rechazo("POST /api/canciones/importar", 400, "Demasiadas canciones (máximo 2000 por importación).");
+
+            std::vector<CancionImportada> validas;
+            std::vector<std::string> errores;
+            int totalErrores = 0;
+            auto falla = [&](const std::string& m) { totalErrores++; if (errores.size() < 10) errores.push_back(m); };
+            for (size_t i = 0; i < arr.size(); i++) {
+                const auto& c = arr[i];
+                std::string donde = "canción " + std::to_string(i + 1);
+                if (c.t() != crow::json::type::Object) { falla(donde + ": no es un objeto."); continue; }
+                if (!c.has("titulo") || !esTexto(c["titulo"]) || !c.has("artista") || !esTexto(c["artista"])) { falla(donde + ": faltan título o artista."); continue; }
+                CancionImportada s;
+                s.titulo = trim(std::string(c["titulo"].s()));
+                s.artista = trim(std::string(c["artista"].s()));
+                if (std::string err = validarTituloArtista(s.titulo, s.artista); !err.empty()) { falla(donde + ": " + err); continue; }
+                if (!textoOpcional(c, "genero", "Por clasificar", s.genero)) { falla(donde + ": género no válido."); continue; }
+                std::string etiquetaTmp;
+                if (c.has("etiqueta")) { if (!textoOpcional(c, "etiqueta", "Original", etiquetaTmp)) { falla(donde + ": tipo no válido."); continue; } }
+                else if (!textoOpcional(c, "etiqueta_especial", "Original", etiquetaTmp)) { falla(donde + ": tipo no válido."); continue; }
+                s.etiqueta = trim(etiquetaTmp); s.genero = trim(s.genero);
+                if (!enLista(s.genero, GENEROS_VALIDOS) || !enLista(s.etiqueta, ETIQUETAS_VALIDAS)) { falla(donde + ": género o tipo no válido."); continue; }
+                if (!boolOpcional(c, "instrumental", false, s.instrumental) || !boolOpcional(c, "banda_sonora", false, s.banda_sonora)) { falla(donde + ": instrumental o banda sonora no válidos."); continue; }
+                std::string errArt;
+                if (!leerEntradasArtistas(c, s.artista, s.entradas, errArt)) { falla(donde + ": " + errArt); continue; }
+                auto tiene = [&](const char* k) { return c.has(k) && c[k].t() != crow::json::type::Null; };
+                bool alguno = tiene("ritmo") || tiene("letras") || tiene("coro") || tiene("importancia");
+                bool todos = tiene("ritmo") && tiene("letras") && tiene("coro") && tiene("importancia");
+                if (alguno && !todos) { falla(donde + ": calificación incompleta (faltan ritmo, letras, coro o importancia)."); continue; }
+                if (todos) {
+                    if (!esNumero(c["ritmo"]) || !esNumero(c["letras"]) || !esNumero(c["coro"]) || !esNumero(c["importancia"])) { falla(donde + ": la calificación debe ser numérica."); continue; }
+                    s.ritmo = c["ritmo"].d(); s.letras = c["letras"].d(); s.coro = c["coro"].d(); s.importancia = c["importancia"].d();
+                    if (!std::isfinite(s.ritmo) || !std::isfinite(s.letras) || !std::isfinite(s.coro) || !std::isfinite(s.importancia)) { falla(donde + ": la calificación debe ser numérica."); continue; }
+                    if (s.ritmo < 0 || s.ritmo > 10 || s.letras < 0 || s.letras > 10 || s.coro < 0 || s.coro > 10) { falla(donde + ": la base debe estar entre 0 y 10."); continue; }
+                    if (s.importancia < 0 || s.importancia > 5) { falla(donde + ": la importancia debe estar entre 0 y 5."); continue; }
+                    if (tiene("arte_visual")) {
+                        if (!esNumero(c["arte_visual"])) { falla(donde + ": arte_visual debe ser 0 o 1."); continue; }
+                        s.arte_visual = c["arte_visual"].d();
+                        if (s.arte_visual != 0 && s.arte_visual != 1) { falla(donde + ": arte_visual debe ser 0 o 1."); continue; }
+                    }
+                    auto leerBono = [&](const char* k1, const char* k2, const char* k3, bool& salida) {
+                        if (c.has(k1)) return esBooleanoO01(c[k1], salida);
+                        if (k2 && c.has(k2)) return esBooleanoO01(c[k2], salida);
+                        if (k3 && c.has(k3)) return esBooleanoO01(c[k3], salida);
+                        salida = false; return true;
+                    };
+                    if (!leerBono("antiguedad", nullptr, nullptr, s.antiguedad) || !leerBono("nostalgia", nullptr, nullptr, s.nostalgia) || !leerBono("descubrimiento", "descubrimiento_terceros", "desc_terc", s.desc_terceros) || !leerBono("complejidad", nullptr, nullptr, s.complejidad)) { falla(donde + ": los bonos deben ser booleanos o 0/1."); continue; }
+                    s.cal_final = std::round(((s.ritmo * 0.35) + (s.letras * 0.25) + (s.coro * 0.40) + s.antiguedad + s.nostalgia + s.desc_terceros + s.complejidad + s.importancia + s.arte_visual) * 100.0) / 100.0;
+                    s.tieneNota = true;
+                }
+                validas.push_back(std::move(s));
+            }
+            if (totalErrores > 0) {
+                std::vector<crow::json::wvalue> listaErr;
+                for (const auto& e : errores) listaErr.push_back(crow::json::wvalue(e));
+                crow::json::wvalue resp;
+                resp["errores"] = std::move(listaErr);
+                resp["total_errores"] = totalErrores;
+                logRechazo("POST /api/canciones/importar", 400, "Importación con errores de validación.");
+                return respSegura(400, std::move(resp));
+            }
+
+            ConnectionGuard guard(*db_pool);
+            pqxx::work W(guard.get());
+            int importadas = 0, omitidas = 0;
+            for (auto& s : validas) {
+                // Duplicado con el artista plano primero: así no se crean
+                // artistas huérfanos por canciones que se van a omitir.
+                pqxx::result chk = W.exec_params("SELECT id FROM canciones WHERE LOWER(titulo) = LOWER($1) AND LOWER(artista) = LOWER($2)", s.titulo, s.artista);
+                if (!chk.empty()) { omitidas++; continue; }
+                std::string derivado;
+                auto resueltos = resolverArtistas(W, s.entradas, derivado);
+                std::string artistaFinal = derivado.empty() ? s.artista : derivado;
+                if (artistaFinal != s.artista) {
+                    pqxx::result chk2 = W.exec_params("SELECT id FROM canciones WHERE LOWER(titulo) = LOWER($1) AND LOWER(artista) = LOWER($2)", s.titulo, artistaFinal);
+                    if (!chk2.empty()) { omitidas++; continue; }
+                }
+                pqxx::result r;
+                try {
+                    if (s.tieneNota) {
+                        r = W.exec_params("INSERT INTO canciones (titulo, artista, genero, etiqueta_especial, instrumental, banda_sonora, ritmo, letras, coro, importancia, arte_visual, antiguedad, nostalgia, descubrimiento_terceros, complejidad, calificacion_final) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id",
+                            s.titulo, artistaFinal, s.genero, s.etiqueta, s.instrumental, s.banda_sonora, s.ritmo, s.letras, s.coro, s.importancia, s.arte_visual, s.antiguedad, s.nostalgia, s.desc_terceros, s.complejidad, s.cal_final);
+                    } else {
+                        r = W.exec_params("INSERT INTO canciones (titulo, artista, genero, etiqueta_especial, instrumental, banda_sonora) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+                            s.titulo, artistaFinal, s.genero, s.etiqueta, s.instrumental, s.banda_sonora);
+                    }
+                } catch (const pqxx::unique_violation&) { omitidas++; continue; }
+                int nuevoId = r[0][0].as<int>();
+                insertarArtistasCancion(W, nuevoId, resueltos);
+                importadas++;
+            }
+            W.commit();
+            logInfo("POST /api/canciones/importar", "importadas=" + std::to_string(importadas) + " omitidas=" + std::to_string(omitidas));
+            return respSegura(200, crow::json::wvalue({{"importadas", importadas}, {"omitidas", omitidas}}));
+        } catch (const std::exception &e) { return respuestaErrorDb("POST /api/canciones/importar", e); }
     });
 
     // 4. CALIFICAR (PUT)

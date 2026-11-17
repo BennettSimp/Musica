@@ -5,16 +5,23 @@
 -- y crea lo que falta (indice unico, indices, columnas de fecha) sin borrar datos.
 --
 -- ESTADO 2026-11-16 — YA APLICADO: la migración documentada aquí (los 5 SQL
--- en orden + corrección 678) ya se aplicó en vivo; este archivo queda como
--- documentación del esquema, NO volver a correrlo como migración. Los
--- conteos de la sección de migración son PRE-678 (677 canciones, 680
--- principales, 423 artistas); el vivo actual es 678 / 681 / 425.
+-- en orden + corrección 678 + corrección de datos ronda 4) ya se aplicó en
+-- vivo; este archivo queda como documentación del esquema, NO volver a
+-- correrlo como migración. Los conteos de la sección de migración son
+-- PRE-678 (677 canciones, 680 principales, 423 artistas); el vivo actual
+-- es 678 / 681 / 425.
 --
--- ORDEN RECOMENDADO DE APLICACIÓN (los 5 SQL de la fase DB, en este orden):
+-- ORDEN RECOMENDADO DE APLICACIÓN (los 5 SQL de la fase DB, en este orden,
+-- más las 2 correcciones posteriores, en este orden):
 --   1. lote-1-aplicar.sql → 2. lote-2-3-aplicar.sql →
 --   3. lote-4-aplicar.sql → 4. titulos-correcciones.sql →
---   5. artistas-aplicar.sql. Cada archivo declara el mismo orden en su
---   encabezado. Dependencias de verificación que dependen del orden:
+--   5. artistas-aplicar.sql → 6. correccion-678.sql →
+--   7. correccion-datos-ronda-4.sql (DESPUÉS de correccion-678.sql:
+--   fusiona artistas 541→419 'Tiësto', 317→358 'Nathy Peluso' y
+--   601→195 'The Living Tombstone', y pone etiqueta 'Remix' en la 652;
+--   ronda 5, ChatGPT: el orden anterior no incluía este archivo).
+-- Cada archivo declara el mismo orden en su encabezado. Dependencias
+-- de verificación que dependen del orden:
 --   la verificación de lote-2-3 (conteos por género) supone el lote 1
 --   y el lote 4 SIN aplicar; la de títulos (LIKE '%tral%') supone el
 --   lote 1 APLICADO; la de lote-4 (0 en Hip Hop/Otro/OST/Asiatica)
@@ -47,18 +54,19 @@ CREATE TABLE IF NOT EXISTS canciones (
     nostalgia BOOLEAN DEFAULT FALSE,
     descubrimiento_terceros BOOLEAN DEFAULT FALSE,
     complejidad BOOLEAN DEFAULT FALSE,
-    calificacion_final DOUBLE PRECISION,
+    calificacion_final DOUBLE PRECISION CHECK (calificacion_final BETWEEN 0 AND 20), -- ronda 5 (ChatGPT): antes sin CHECK; el backend la calcula bien, pero una modificación externa podía dejarla fuera de 0-20
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- NOTA sobre los CHECKs: este CREATE TABLE IF NOT EXISTS es no-op en
 -- vivo (la tabla ya existe), así que los CHECKs solo aplican a una base
--- nueva. Para la tabla en vivo hace falta un ALTER en la fase DB
--- (ALTER TABLE canciones ADD CONSTRAINT ... CHECK (...)); el de género
--- SOLO se puede añadir DESPUÉS de aplicar los lotes 1–4, porque hasta
--- entonces la tabla aún tiene Hip Hop, Otro y OST, que el CHECK no
--- admite. Los demás CHECKs (etiqueta, notas, arte_visual, título)
+-- nueva, incluido el de calificacion_final añadido en la ronda 5. Para
+-- la tabla en vivo hace falta un ALTER en la fase DB (ALTER TABLE
+-- canciones ADD CONSTRAINT ... CHECK (...)); el de género SOLO se puede
+-- añadir DESPUÉS de aplicar los lotes 1–4, porque hasta entonces la
+-- tabla aún tiene Hip Hop, Otro y OST, que el CHECK no admite. Los
+-- demás CHECKs (etiqueta, notas, arte_visual, título, calificacion_final)
 -- no dependen de los lotes.
 --
 -- Una misma cancion (titulo + artista) no se puede repetir, sin importar
@@ -77,6 +85,29 @@ CREATE INDEX IF NOT EXISTS canciones_genero_idx
     ON canciones (genero);
 CREATE INDEX IF NOT EXISTS canciones_busqueda_idx
     ON canciones (LOWER(titulo) text_pattern_ops, LOWER(artista) text_pattern_ops);
+
+-- OPCIONAL (ronda 5, extras bloque 4 — ChatGPT; NO APLICADO EN VIVO,
+-- solo documentación): búsqueda por subcadena con pg_trgm.
+-- El índice de arriba (text_pattern_ops) solo acelera prefijos
+-- (LIKE 'abc%'): la búsqueda de la app es por subcadena (LIKE
+-- '%abc%'), así que hoy sigue escaneando la tabla. Con 678 canciones
+-- no importa; si el catálogo crece a miles, aplicar esto en el SQL
+-- Editor de Supabase (descomentar, NO corre con schema.sql):
+--   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+--   CREATE INDEX IF NOT EXISTS canciones_titulo_trgm_idx
+--       ON canciones USING GIN (LOWER(titulo) gin_trgm_ops);
+--   CREATE INDEX IF NOT EXISTS canciones_artista_trgm_idx
+--       ON canciones USING GIN (LOWER(artista) gin_trgm_ops);
+-- Dos índices separados (uno por columna): la búsqueda filtra por
+-- título O por artista, y un GIN multicolumna no serviría para ambas
+-- por separado. El índice solo se usa si la consulta aplica LOWER()
+-- igual que la expresión indexada (el backend ya busca con
+-- LOWER(titulo) / LOWER(artista)). El índice text_pattern_ops se
+-- conserva: sigue sirviendo para prefijos y no estorba. La subconsulta
+-- EXISTS de la búsqueda sobre artistas.nombre (423 artistas) no
+-- necesita índice. En Supabase
+-- la extensión pg_trgm está disponible; no requiere nada en el
+-- backend ni en el frontend.
 
 -- updated_at se actualiza solo en cada UPDATE.
 CREATE OR REPLACE FUNCTION canciones_touch_updated_at() RETURNS TRIGGER AS $$
