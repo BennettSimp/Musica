@@ -1,3 +1,1015 @@
+## Mega-auditorías (ronda 4) — 2026-11-16
+
+**Alcance:** TODO el paquete preparado, de arriba a abajo, más profunda que
+la ronda 3: main.cpp, public/app.js, public/index.html, public/sw.js,
+public/manifest.webmanifest, vercel.json, Dockerfile, .dockerignore,
+.gitignore, .env.example, package.json, schema.sql, los 7 SQL
+(lote-1, lote-2-3, lote-4, titulos-correcciones, artistas-aplicar,
+correccion-678), harness-pruebas.js, generar-artistas.py,
+validar-artistas.py, README.md, REVISION.md, BASE.md,
+diseno-artistas.md, decisiones-colaboraciones.md, colaboraciones*.md,
+productores*.md, archivos de lotes. Novedad de la ronda: **auditoría de
+datos** (oleada 10) que verifica los roles de artista contra la nueva
+regla del principal (a quien se le acredita la canción, sea productor o
+no) y la canción 678 en vivo. Organizada en 10 oleadas en paralelo;
+el coordinador verificó cada oleada de forma independiente antes de
+darla por buena (incl. controles negativos y re-ejecución de tests
+standalone).
+
+**Baseline:** harness 353 PASS, 0 FAIL, 0 SKIP; main.cpp 1135 líneas,
+app.js 1157, index.html 353, harness 1336.
+**Estado final:** **harness 427 PASS, 0 FAIL, 0 SKIP**; main.cpp 1278,
+app.js 1171, index.html 353, harness 1678. **0 errores en código.**
+Hallazgos de datos para decisión de Nova: 1 ALTO, 1 MEDIO dudoso, 4
+BAJO–MEDIO (ver abajo; no se cambió ningún dato por cuenta propia).
+
+### Por oleada
+
+- **Oleada 1, pruebas — 353→427 (+74, sección 25).** 25a: 8 tests de
+  splash con cargarCatalogo real en sandbox. 25b (M1): bloque de color
+  real extraído de app.js y ejecutado; diferencial de 136 combinaciones
+  nota×puesto, 0 diferencias. 25c (M3): 10 anclas numéricas de main.cpp.
+  25d: catálogo sintético 678 (Top 10 intacto, histograma
+  22/79/157/202/142/76). 25e: diferencial de artistas 0 en 7 casos;
+  678 → "Timmy Trumpet ft. Savage". 25f: UTF-8 (Скриптонит, emoji).
+  25g: título 200/B1 anclado. 25h: .xx5 en ambos sentidos (59/106/353
+  aclarado: 0 filas fuera de ±0.01, desviación real máx. 0.005). 25i:
+  catálogo vacío/histograma. 2 espejos del harness corregidos
+  (paginaDe con max(1, …), statsDe con mediana real 16.86). Control
+  negativo C2 reproducido por el coordinador (≥19 → >19: 423 PASS,
+  4 FAIL, exacto). Fixture 677 intacto.
+- **Oleada 2, control de errores — sin HIGH/MEDIUM nuevos.** N1
+  (MEDIUM, corregido): el botón de calificar podía quedarse
+  deshabilitado para siempre — `const body` dentro del `try`
+  (app.js:977). B3: 403 → 'ACCESO DENEGADO' (app.js:51). B4: PUT /info
+  valida después del 404. B8: el toast de eliminar ya no es rojo. B9:
+  trim en género/etiqueta. B11: trim en la clave del prompt. `limite`
+  es POR DISEÑO, no un bug (`int limite = 50`, main.cpp:878; sin
+  parámetro URL; el frontend asume 50; comentario añadido; en vivo
+  `?limite=10` → 200 con 50 filas). B5 pendiente con propuesta
+  exacta (reintento de stats 65 s en 429; bloqueado por el ancla del
+  harness `}, 15000);`). Corrección del coordinador: `conBloqueo` SÍ
+  se llama desde 5 handlers inline de index.html (:230, :232, :256,
+  :257, :295) — la oleada 2 se equivocó ahí; sin impacto en código.
+- **Oleada 3, logs — los 4 pendientes LOW de la ronda 3 RESUELTOS.**
+  DATABASE_URL cerr con marca de tiempo; nuevo
+  `redactarCredencialesGenericas()` (main.cpp:125);
+  `huellaIp()` (FNV-1a, main.cpp:201) y logAuth registra `ip_hash=`
+  (main.cpp:215), nunca la IP clara; `orden` desconocido ya se
+  registra (main.cpp:890). Nuevo MEDIUM: inyección de línea de log —
+  `sanitizarLog` quita \n/\r (main.cpp:166-167); `donde` sanitizado en
+  las 4 funciones de log (:182, :188, :194, :215; el conteo G-L1
+  vuelve a 5). Test funcional `/tmp/test_logs_r4.cpp`: 29/29 PASS
+  (re-ejecutado por el coordinador). Residual: una clave corta suelta
+  sin contexto no se puede redactar; `genero` desconocido / `rol`
+  inválido caen en silencio (análogo a `orden`).
+- **Oleada 4, limpieza + decisiones — 11/11 decisiones cerradas PASS**
+  (con tabla de evidencia). Solo 2 comentarios en main.cpp
+  (677→678, promedio 16.4841; :960, :1169). 0 código muerto (main.cpp
+  48 funciones, app.js 60, 0 muertas; 41 clases CSS todas usadas).
+  ">19"/">18" solo quedan como citas históricas. El texto viejo
+  "principal = quien canta" quedaba en schema.sql:134 (corregido en
+  la consolidación de esta ronda) y en papeles históricos de
+  verificación (intencionadamente sin reescribir). DECIDIDO por Nova
+  2026-11-16: violeta ≥17.8 ("E igual o mayor a 17.80"). Código
+  cambiado (`> 17.8` → `>= 17.8` en app.js:667 y espejo del harness)
+  y redacción corregida a "≥17.8" en README, BASE y comentarios.
+  0 canciones en 17.80 exacto, sin efecto en vivo (a 17.80 el color
+  ya era violeta puro por la rampa; solo cambia el brillo a violeta).
+- **Oleada 5, seguridad — sin vulnerabilidades altas ni críticas; los
+  fixes de las rondas 1–3 firmes.** Re-verificado: fail-closed
+  ADMIN_TOKEN ≥24, comparación en tiempo constante, rate limits en
+  TODOS los GETs salvo `/api/salud` (7/7 guardas, 120/min/IP,
+  Retry-After 60), cuerpo 64 KB → 413, exec_params 12/12, validación
+  estricta, `respSegura` (nosniff + HSTS) en TODAS las respuestas de
+  la API, ALLOWED_ORIGIN=`*` tratado como indefinido, token nunca en
+  logs, 401 con distinción, 503, total_paginas, truncarUtf8,
+  X-Auth-Error. Auditoría XSS: 16/16 innerHTML SEGUROS (uno por uno);
+  0 insertAdjacentHTML/document.write/eval/new Function/outerHTML;
+  CSV anti-fórmula intacto. 6 LOW corregidos: H-R4-1
+  `extraerPasswordUrl` perdía la clave con `@` (ahora última `@`
+  antes de la ruta; main.cpp:72-90, convive con el fix de la oleada 3
+  del primer `:`); H-R4-2 `compararConstante` trataba "abc" y
+  "abc\0" como iguales (ahora `diff == 0 && a.size() == b.size()`;
+  :308); H-R4-3 UTF-8 inválido o NUL en `buscar`/`genero` → 500 de
+  Postgres (nuevo `utf8Valido()` estricto, :393-422, + 400 en
+  GET /api/canciones, :865-866); H-R4-4 `g_adminToken` sin mínimo de
+  longitud (guarda ≥4, :819); H-R4-5 vercel.json sin HSTS ni
+  Permissions-Policy (aplicados, :20-27); H-R4-6 API sin
+  `Cache-Control` ni `X-Frame-Options` (`no-store` + `DENY` en
+  `cabecerasSeguridad()`, :225, :228). Test standalone
+  `/tmp/test_seg_r4.cpp`: 30/30 PASS (re-ejecutado por el
+  coordinador). Escaneo de secretos en todo el paquete: 0
+  credenciales hardcodeadas (solo placeholders). MEDIUM residual:
+  riesgo de suministro del Play CDN (el script de Tailwind corre en
+  el origen de la página con acceso a sessionStorage, donde vive el
+  token; el pin 3.4.17 no lo elimina; SRI sigue sin ser aplicable —
+  verificado en vivo: el CDN responde 200 sin
+  `Access-Control-Allow-Origin`). Planes CSP completo (53 atributos,
+  4–6 h + regresión) y Tailwind v4 / build local (2–4 h + revisión
+  visual) en el informe de la oleada 5; decisiones de Nova.
+- **Oleada 6, SQL — 0 errores. Postgres real 16.15 en la VM**
+  (cluster /tmp/pgtest, puerto 54399). Los 7 SQL ejecutados en orden
+  en una DB nueva, 0 errores: lote-1 8/0, lote-2-3 94/0, lote-4 128/0,
+  títulos 22/0, artistas 25/0, correccion-678 2 updates. Estado final
+  de la DB de prueba: 677 canciones, 423 artistas, principal 680 /
+  invitado 330 / productor 14, 0 huérfanos, 0 en Hip Hop/Otro/OST/
+  Asiática; géneros Rap 189, Reggaeton 134, Pop 70, Electronica 57,
+  Trap 40; banda_sonora = 8 (no 9: la 330, omisión B1, el fix vive
+  solo en vivo). 677 = 'MONTERO (Call Me By Your Name)' / 'Lil Nas
+  X'. Los 2 pendientes SQL de la ronda 3 RESUELTOS: 29/34 comentarios
+  invertidos corregidos en 3 sitios + el generador calcula
+  `n_cambian_id`/`n_noop_id` (regeneración byte-idéntica); cabeceras
+  "NO CORRER TODAVÍA" → "YA APLICADO 2026-11-16" en los 7 archivos
+  (0 ocurrencias restantes). Notas POST-678 añadidas (sin reescribir
+  historia). schema.sql paso 6 añadido (la app crea artistas
+  faltantes, sin ALTER). pglast OK ×7; censos: schema 11, artistas
+  521, 678 4, lote-1 15, lote-2-3 103, lote-4 136, títulos 27;
+  validar-artistas.py TODO OK. Incorrección de reporte (sin impacto):
+  la oleada 6 escribió que la simulación 678 dio "UPDATE 1 ×2" pero
+  el artefacto muestra UPDATE 1 + UPDATE 0 (el segundo era no-op
+  porque la semilla ya tenía 'Timmy Trumpet'); el archivo es correcto
+  y está probado en vivo.
+- **Oleada 7, frontend/PWA — sin HIGH/MEDIUM.** 1 cambio:
+  manifest.webmanifest: `"purpose": "any maskable"` en el icono
+  192×192 (ahora en AMBOS iconos; JSON válido). LOWs: (1) pestañas
+  móviles a 12px y no 11px (BASE.md dice 11px; `text-xs` en
+  index.html:205-208 y en app.js:165 — corregido en la consolidación
+  de esta ronda a `text-[11px]`); (2) offline sin caché →
+  respondWith(undefined); (3) el splash queda visible para siempre si
+  app.js falla al cargar; (4) el aviso de arranque en frío queda
+  detrás del splash. Verificado PASS: splash (estático), PWA (iconos
+  0 píxeles blancos, sw.js precache 6 archivos, v3), Tailwind 3.4.17
+  200/407.279 B sha256 176e8946…c50d15, balance HTML 0 errores, 0 IDs
+  duplicados, 40 handlers inline exactos, .btn-seguir ×3.
+- **Oleada 8, build/despliegue + plan PR #4 — H1 RECONFIRMADO con
+  evidencia independiente** (coordinador re-descargó y comparó:
+  index.html raíz 36.620 B / 3× btn-seguir / md5 1bc76d94;
+  public/index.html 36.381 B / 0× / md5 e696c0ac; Vercel idéntico a
+  public). **Nuevo MEDIUM: "trampa de ruta nº 2"** — los SQL viven en
+  la raíz del paquete pero en `migraciones/` en el repo; subirlos a
+  la raíz del repo repetiría H1 en otra forma; correccion-678.sql es
+  404 en ambas rutas del repo (verificado: migraciones/lote-1 200,
+  migraciones/correccion-678 404, raíz correccion-678 404). Escribió
+  `PR-4-PLAN.md` (255 líneas) con lista verificada origen→destino
+  (18 actualizados + 1 nuevo + 6 sin cambio + lista de no-subir), 2
+  eliminaciones exactas, checklist anti-H1 pre-push, despliegue +
+  verificación en vivo. tailwind.config.js existe en main (229 B,
+  muerto) → eliminación en PR #4. **`.vscode/settings.json` NO está
+  muerto** (70 B, config real de CMake Tools) — excluido
+  correctamente de las eliminaciones; borrarlo exige OK explícito de
+  Nova (la ronda 3 lo listó mal como muerto en H5). Sin archivos de
+  build por editar. Crow SHA ae0fef0 verificado = v1.3.4.
+- **Oleada 9, docs — correcciones aplicadas y verificadas.**
+  README.md:31 total 678; BASE.md:151/178/185-197 (contradicción
+  "NADA aplicado" corregida); decisiones-colaboraciones.md:3/:25
+  (nota 633 corregida)/:38; diseno-artistas.md:3-6/:47-50 (681 filas
+  de principal)/:92-95; colaboraciones.md intro (regla del
+  principal); productores.md intro. Grep "Original (None)": 0 en los
+  docs fuente. Citas de líneas de la ronda 3 desplazadas por el
+  splash (app.js:654/655/630, main.cpp:810/337/721) — se mueven con
+  las ediciones concurrentes; el informe final re-verifica las líneas
+  contra los archivos finales. La cita "app.js:339" de la ronda 2 se
+  deja como historia a propósito. Verificado en vivo: stats 678,
+  histograma 202, artistas 425, principales suma 681, filas de
+  invitado 331, filas de productor 14.
+- **Oleada 10, datos — informe en `auditoria-datos-ronda-4.md`.**
+  H1 (ALTO) — 326 "Mad love": David Guetta falta como artista. En
+  vivo: solo productor (principal Sean Paul, invitada Becky G).
+  Wikipedia: "Single by Sean Paul and David Guetta featuring Becky
+  G". colaboraciones.md:95 lo dejó fuera con el atajo viejo ("Guetta
+  no canta: va como productor") — justo lo que la nueva regla
+  invalida. Opciones para Nova: invitado (precedente 670/200) o
+  co-principal (precedente 531). H2 (MEDIO, dudoso) — 238 "Ayo
+  Technology": Timbaland invitado — el sencillo lo deja sin crédito
+  (Discogs: "Vocals [Uncredited] – Timbaland"); el álbum *Curtis* y
+  Qobuz lo acreditan como featured; duda genuina; el rol de productor
+  es firme en cualquier caso. H3 (BAJO) — 652 "Ena remix": etiqueta
+  `Original` — única de 10 canciones con "remix" en el título sin la
+  etiqueta Remix. H4–H6 (BAJO–MEDIO) — 3 artistas duplicados
+  probables (verificados en vivo por el coordinador vía
+  /api/artistas, 425 en total): `Tiesto` (id 198, 1 principal) vs
+  `Tiësto` (id 419, 0 principales); `Natthy peluso` (id 144) vs
+  `Nathy Peluso` (id 358); `The livings tombstones` (id 196) vs
+  `The Living Tombstone` (id 195). Verificado OK: 678 completa;
+  casos dirigidos 670, 202, 531, 629, 631, 232, 652 (roles), 633;
+  integridad (678 IDs únicos, 0 filas fuera de ±0.01, 25/29 géneros,
+  5/11 etiquetas, 425 artistas, 3 productores puros 0/0, Top 10
+  exacto, GOD 76, histograma 22/79/157/202/142/76). Corrección del
+  coordinador durante la oleada: la etiqueta "Edit" de la 678 ya
+  estaba confirmada por Nova y REVISION.md:5 ya dice "Edit" — no
+  había discrepancia de docs ahí.
+
+### Consolidación del coordinador (esta ronda)
+
+- Pestañas móviles 11px: `text-xs` → `text-[11px]` en
+  public/index.html:204-208 (contenedor + 4 botones) y
+  public/app.js:165 (reconstrucción en switchTab). Alinea el código
+  con la decisión cerrada de BASE.md (08:40).
+- schema.sql:134: "Principal = quien canta" → "Principal = a quien se
+  le acredita la cancion, sea productor o no (regla de Nova
+  2026-11-16)" (solo comentario; pglast OK).
+- artistas-aplicar.sql:59: la nota que decía que el error 633 "sigue
+  en colaboraciones-reverificacion.md:80 (pendiente de corrección)"
+  estaba desactualizada — :80 ya dice "ya está en Remix en vivo; sin
+  acción". Corregida la nota (solo comentario; pglast OK).
+- PR-4-PLAN.md:51: fila del manifiesto actualizada — `purpose: any
+  maskable` en AMBOS iconos (el 192 lo añadió la oleada 7).
+- `.env.example` y README.md: el comentario "Si no está definida,
+  CUALQUIERA puede modificar el catálogo" era FALSO desde el
+  fail-closed de la ronda 1 (sin token válido las escrituras son
+  401). Corregido en ambos: "Si no está definida o tiene menos de 24
+  caracteres, las escrituras devuelven 401".
+- README.md: cifras del harness 353 → 427 + párrafo de la ronda 4.
+
+### Qué se eliminó
+
+Nada en esta ronda (las eliminaciones de index.html raíz y
+tailwind.config.js pertenecen al PR #4, aún sin crear).
+
+### Pendientes (con motivo)
+
+1. **CSP completo y Tailwind v4 / build local** — decisiones de Nova
+   (planes exactos en el informe de la oleada 5: CSP 53 atributos,
+   4–6 h + regresión; v4 2–4 h + revisión visual; ideal juntos).
+2. **`/api/salud` sin rate limit** — el harness lo prohíbe
+   expresamente (tests R2-O2 `guardasDentro === 14` y 23j); parche
+   exacto en el informe de la oleada 5; requiere actualizar 2 tests.
+3. **Catch-all 404 con cabeceras** — parche propuesto por la oleada 5,
+   sin aplicar por falta de verificación en runtime en esta VM;
+   requiere prueba en Render tras el despliegue.
+4. **Dockerfile: pin por digest de `ubuntu:22.04` sin verificar** —
+   el registry de Docker Hub era inalcanzable desde la VM (curl exit
+   28 ×2); sin digest verificado no se pinnea a ciegas. `docker build`
+   real sigue pendiente antes de fusionar el PR #4 (imposible en
+   esta VM).
+5. **B5 (reintento de stats 65 s en 429)** — propuesta exacta de la
+   oleada 2; requiere cambiar el ancla del harness `}, 15000);`.
+6. **B1/B2/B6/B10 de la oleada 2** — pendientes con motivo en su
+   informe. **Límite de 10 artistas** en el arreglo crudo — pendiente
+   con propuesta. **`genero` desconocido / `rol` inválido** caen en
+   silencio (observación de la oleada 3, análoga a `orden` ya
+   registrado).
+7. **sw.js B1** (`respondWith(undefined)` offline sin caché) —
+   cosmético, preexistente. **Splash visible si app.js falla** y
+   **aviso de arranque en frío detrás del splash** (oleada 7 LOW 3-4).
+8. **Auto-Deploy en Render** (no disparó en PR #1/#2; despliegue
+   manual del PR #3 sigue pendiente). **Comprobación visual del
+   splash en navegador real** (pasos exactos en el informe de la
+   oleada 7). **Ahorro de Tokens** (tema pendiente desde 2026-11-16
+   14:08; las cifras de saldo en memoria se contradicen y no están
+   verificadas).
+
+### Decisiones para Nova (no se decide por cuenta propia)
+
+(a) 326 Guetta — DECIDIDO por Nova 2026-11-16: invitado (precedente 670/200), SQL en correccion-datos-ronda-4.sql punto (5); (b) 238 Timbaland invitado — DECIDIDO por Nova 2026-11-16: se queda como invitado (sin cambio); (c) 652 etiqueta Original vs Remix; (d) los 3
+artistas duplicados (Tiesto/Tiësto, Natthy/Nathy Peluso, livings
+tombstones/Living Tombstone); (e) violeta ≥17.8 — DECIDIDO por Nova 2026-11-16: ≥17.8 ("E igual o mayor a 17.80"), código y redacción corregidos; (f) borrar
+`.vscode/settings.json` o no (es config real de CMake Tools); (g)
+aprobación del PR #4 + despliegue manual del PR #3 (ambos pendientes).
+
+### Verificación final (coordinador, tras la consolidación)
+
+- `node --check public/app.js && node --check public/sw.js && node --check harness-pruebas.js` → **OK ×3**
+- `node harness-pruebas.js` → **427 PASS, 0 FAIL, 0 SKIP**
+- C++: `g++ -std=c++20 -fsyntax-only -include utility -I/tmp/crow-check/include -I/tmp/asio-check/asio/include -I/tmp/pqxx-stub main.cpp` → **exit 0**
+- pglast ×7 (schema.sql, artistas-aplicar.sql, correccion-678.sql,
+  lote-1-aplicar.sql, lote-2-3-aplicar.sql, lote-4-aplicar.sql,
+  titulos-correcciones.sql) → **OK ×7**
+- `/tmp/test_seg_r4.cpp` re-ejecutado → **30/30 PASS**;
+  `/tmp/test_logs_r4.cpp` re-ejecutado en la ronda → **29/29 PASS**
+- En vivo (solo GETs): `/api/salud` → `{"admin_token_configurado":true,"status":"OK"}`; `/api/salud/db` → OK; export 678 canciones, 678 IDs
+  únicos, max id 678; GOD ≥19 = 76; 19.00 exacto [8, 84, 286, 587];
+  18.00 exacto [154, 423]; 678 = "Freaks" / Timmy Trumpet /
+  Electronica / Edit / 16.09; histograma 22/79/157/202/142/76;
+  stats total 678, promedio 16.4841, sin_calificar 0; /api/artistas
+  425, 3 productores puros en 0/0 (Alex da Kid, Danja, RedOne).
+
+## Corrección 678 — "Freaks" (Timmy Trumpet & Savage) — 2026-11-16
+
+**Origen:** Nova agregó la canción 678 en vivo (única adición nueva; el catálogo pasa de 677 a 678; 0 canciones existentes modificadas). Re-análisis canción por canción con fuentes (Wikipedia, video oficial, Apple Music, AllMusic, APRA).
+
+**Verificado y SIN cambio:** género Electronica (Melbourne bounce ⊂ EDM; 1 canción no cumple la regla de género nuevo); título "Freaks"; etiqueta "Edit" (CONFIRMADO por Nova 2026-11-16 16:39: agregó la versión editada); instrumental FALSE; banda sonora FALSE; fórmula (16.085 → 16.09, tolerancia ±0.01).
+
+**Correcciones (archivo `correccion-678.sql`, pglast OK, con guardas + verificación + rollback):**
+1. Artista 437: 'Timmy trumpet' → 'Timmy Trumpet' (capitalización; el nombre es sin S: Wikipedia, video oficial, Apple Music, AllMusic, APRA, timmytrumpet.com).
+2. Savage (438) SE QUEDA como invitado — DECIDIDO por Nova 2026-11-16 16:31 ("Según YouTube Music, el artista principal es Timmy Trumpet"): mi propuesta inicial de subirlo a principal (crédito "&", precedente 531) queda descartada. REGLA (Nova 2026-11-16 16:33): el artista principal es a quien se le acredita la canción, sea productor o no — como en este caso.
+3. Columna almacenada `canciones.artista` → 'Timmy Trumpet' (coherencia; las lecturas la derivan).
+
+**Pendiente:** Nova corre el SQL en Supabase → verificación en vivo vía export → re-sincronizar vista previa → mega-auditorías.
+
+## Auditoría final absoluta (ronda 3) — 2026-11-16
+
+**Alcance:** TODO el paquete preparado, de arriba a abajo, archivo por
+archivo, sin muestreo: main.cpp, public/app.js, public/index.html,
+public/sw.js, public/manifest.webmanifest, vercel.json, Dockerfile,
+.dockerignore, .gitignore, .env.example, package.json, schema.sql, los 5
+SQL (lote-1, lote-2-3, lote-4, titulos-correcciones, artistas-aplicar),
+harness-pruebas.js, generar-artistas.py, validar-artistas.py, README.md,
+REVISION.md, BASE.md. Incluye los cambios de la ronda 2 (aún no en main)
+y el contenido del PR #3 (botón `.btn-seguir`, iconos). Organizada en 8
+oleadas en paralelo + agente de splash; coordinador verificó cada
+oleada de forma independiente antes de darla por buena.
+
+**Baseline:** harness 228 PASS, 0 FAIL, 0 SKIP; main.cpp 1085 líneas,
+app.js 1137, index.html 325, harness 1054.
+**Estado final:** **harness 353 PASS, 0 FAIL, 0 SKIP**; main.cpp 1135,
+app.js 1157, index.html 353, harness 1336. **0 errores.**
+
+### Por oleada
+
+- **Oleada 1, pruebas — 228→341 (+113, sección 23).** 23a–23l: GOD ≥19
+  anclado, mostrarErrorHttp extraído y ejecutado con respuestas falsas,
+  claveCancion/normalizarTexto, rate limits, cuerpo 64 KB + timeouts,
+  token en sessionStorage, validación POST/PUT, órdenes, búsqueda/notas
+  incl. truncarUtf8, salud/pool/CORS, CSV, bloqueo/E6/sliders/Editar.
+  3 controles negativos ejecutados (GOD, histograma, rate limit: cada
+  uno 339/1 FAIL como se esperaba). M1: `colorFila` es espejo, no
+  extraída (solo grad/mezcla/suave lo son; los cambios de umbral solo
+  los caza el ancla de texto 5c). M2: `statsDe` tenía mediana 0
+  hardcodeada (corregido: mediana real 16.86 + ancla de texto). M3:
+  espejos de reglas de backend duplicados a mano (mitigado con anclas
+  23d/23g).
+- **Oleada 2, errores — los 3 pendientes de la ronda 2 RESUELTOS.**
+  (a) 401 con distinción: `respuestaAuth` devuelve cuerpo "Token no
+  configurado." + cabecera `X-Auth-Error: token_no_configurado` solo
+  cuando `!tokenConfigurado()` (main.cpp:165-177); `mostrarErrorHttp`
+  muestra CLAVE NO CONFIGURADA EN EL SERVIDOR con esa cabecera y CLAVE
+  INCORRECTA en otro caso (app.js:45-47); `apiFetch` ya no pide la
+  clave con prompt cuando el token no está configurado (app.js:511).
+  No revela nada nuevo: `/api/salud` ya expone
+  `admin_token_configurado` en público. Contexto: el 2026-11-16 Nova
+  olvidó su clave de admin y la recordó minutos después; la clave
+  nueva generada NO se usó y NO debe ponerse en Render. (b)
+  `total_paginas: 0` con catálogo vacío → `std::max(1, …)`
+  (main.cpp:796); el frontend ya compensaba con `|| 1`, sin cambio
+  visible. (c) DB caída → 503: `dynamic_cast<const
+  pqxx::broken_connection*>(&e)` → 503 "DB NO DISPONIBLE"
+  (main.cpp:183-196), verificado contra el código real de libpqxx
+  7.9.2 (`broken_connection : failure : std::runtime_error`); cubre
+  conexión fallida en el pool y conexión muerta a mitad de consulta;
+  los demás errores SQL siguen en 500. **MEDIO nuevo corregido:** el
+  CSV sacaba `[object Object]` en la columna `artistas`
+  (app.js:464; ahora `JSON.stringify(v)` para objetos). 11 bajos
+  documentados sin cambio (B1 bytes vs caracteres en título — lo
+  bloquea el ancla R3 del harness línea 1216; B2 parámetros inválidos
+  silenciosos; B3 sin rama 403; B4 PUT /info valida artistas antes
+  del 404; B5 reintento de stats con 429; B6 races de lecturas; B7
+  GUARDANDO… antes de validar sliders; B8 toast de eliminar en rojo;
+  B9 género/etiqueta sin trim; B10 pagina con tope 100000; B11 clave
+  del prompt sin trim; B12 `W.abort()` tras unique_violation).
+  Los 12 tests de esta oleada + los 3 de logs se añadieron en la
+  consolidación (sección 24 del harness; controles negativos: 350/3
+  FAIL y 352/1 FAIL como se esperaba).
+- **Oleada 3, logs — 2 MEDIUM + 4 LOW corregidos.** (1)
+  `extraerPasswordUrl` usaba `rfind` para `:` y solo tapaba parte de
+  una contraseña con `:` (main.cpp:70-80; ahora primer `:` tras el
+  esquema). (2) Crow registraba cada petición en INFO con la URL cruda
+  (la búsqueda `?buscar=…` iba a los logs de Render sin sanitizar):
+  `crow::logger::setLogLevel(crow::LogLevel::Warning)` al inicio de
+  main() (main.cpp:667). LOW: guarda de contraseña decodificada ≥4
+  (main.cpp:691), 4 warns de sessionStorage distinguidos, fetch
+  fallido de buscarPaginas con log, warns con endpoint. 4 LOW
+  pendientes con motivo (error de DATABASE_URL por cerr sin
+  timestamp; contraseñas DB <4 sin redactar; logAuth registra IP;
+  `orden` desconocido cae a Top en silencio). Test funcional
+  /tmp/test_logs_r3.cpp: 11/11 PASS.
+- **Oleada 4, limpieza + decisiones + docs — GOD ">19" → "≥19" en 3
+  sitios** (README.md:125, BASE.md:157, app.js:611); `.gitignore` +=
+  `public/datos-en-vivo.json`; entrada de ronda 2 en README con PR #3
+  (main fb0f900d, despliegue manual pendiente); 8/8 decisiones
+  cerradas PASS + botón + iconos PASS; limpieza: sin código muerto
+  (59 funciones app.js, 45 main.cpp, Python limpio). **O1 (NUEVO,
+  para decisión de Nova):** el prose dice ">18 fuchsia" pero el
+  código es `>= 18` (app.js:636) y el harness ya dice "≥18 fuchsia";
+  2 canciones en 18.00 exacto (IDs 154, 423) son fuchsia en código.
+  O2: la entrada de la ronda 2 citaba "app.js:339" para ≥19, en
+  realidad app.js:635. O3: 0 canciones en 17.80 exacto, sin caso
+  borde vivo para el violeta.
+- **Oleada 5, seguridad — sin vulnerabilidades altas/críticas; los
+  fixes de la ronda 2 siguen firmes. H1 MEDIUM corregido:**
+  `/api/salud/db` no tenía rate limit y tomaba una conexión del pool
+  por petición (DoS por agotamiento de pool); añadido
+  `excedeLimiteLectura` (main.cpp:688/708; el healthcheck de Render
+  ~2/min queda muy por debajo de 120/min). **Decisión del
+  coordinador: SE MANTIENE la guarda** (reemplaza la nota de la ronda
+  2 "salud/db ilimitado a propósito", que era para no romper los
+  healthchecks; 120/min no los rompe). **H2 LOW corregido:** `buscar`
+  truncado a 100 bytes partía UTF-8 → 500; helper `truncarUtf8()`
+  (main.cpp:277, uso en :722), test aislado 8/8 PASS. XSS: 16
+  innerHTML en app.js, todos seguros (sigue en 16 tras el splash).
+  **CSP — plan concreto, NO implementado** (refactor grande: ~40
+  onclick a addEventListener, tailwind.config y `<style>` fuera,
+  delegación de eventos con data-*). **Aplicado en la consolidación:
+  cabecera incremental** `Content-Security-Policy: object-src 'none';
+  base-uri 'self'` en vercel.json (la página no tiene
+  object/embed/applet/base: grep 0). SRI de Tailwind: NO aplicable
+  (Tailwind no publica hash oficial y el CDN no envía CORS, así que
+  integrity+crossorigin bloquearía la carga); queda solo el pin de
+  versión (oleada 7).
+- **Oleada 6, SQL + tooling — pglast OK en los 6 SQL; 254 UPDATEs
+  con guardas `AND`; conteos exactos** (lote-1: 8, lote-2-3: 94,
+  lote-4: 128 = 126 género + 2 solo-flags 301/604, títulos: 22,
+  artistas: 423/680/330/14, 248 cambiadas); cero solapes entre
+  lotes; rollbacks coherentes; CHECKs de schema.sql correctos (29
+  géneros en el mismo orden que main.cpp, 11 etiquetas, rangos,
+  título ≤200). **M1 RESUELTO:** validar-artistas.py reconoce
+  `UPDATE artistas SET nombre = '…' WHERE id = N` (TODO OK, 521
+  sentencias, 37/37 verificaciones incl. 677 → 'Lil Nas X'). **M2
+  RESUELTO:** generar-artistas.py con carve-out
+  `DISPLAY_ONLY_RENAMES`; regeneración a /tmp byte-idéntica al
+  archivo aplicado (re-verificado en la consolidación). **B1
+  RESUELTO:** omisión 330 anotada en lote-4-aplicar.sql:120. **B3
+  RESUELTO:** comentario en titulos-correcciones.sql:88 (COMMIT antes
+  de la verificación del PASO 3). **MEDIUM pendiente (solo
+  comentario):** los números 29/34 están INVERTIDOS en comentarios
+  (artistas-aplicar.sql:25-28,:1246-1247, schema.sql:161): en realidad
+  34 cambian artista_id y 29 son no-op. **LOW pendiente:** los 5 SQL
+  + schema.sql siguen diciendo "NO CORRER TODAVÍA / NADA aplicado
+  todavía" aunque ya se aplicaron en vivo — falta añadir "YA APLICADO
+  2026-11-16" por archivo. **Fixture DECIDIDO — datos-reales.json NO
+  se actualiza:** sustituirlo por el export en vivo hace fallar 3
+  tests que fijan valores pre-aplicación (§5 top de género Baladas
+  18.8 → Bachata 19.3; §8a 17 géneros → 18+0; "Ver más · 14" → 15);
+  generador/validador están acoplados por diseño al catálogo
+  pre-aplicación. El fixture viejo sigue válido para su uso actual
+  (fórmula, Top 10, ventanas pasan con ambos).
+- **Oleada 7, frontend/PWA — Tailwind fijado a
+  `https://cdn.tailwindcss.com/3.4.17`** (index.html:26; 200, cuerpos
+  byte-idénticos 407.279 bytes, sha256 176e8946…c50d15); 3 metas PWA
+  (mobile-web-app-capable, apple-mobile-web-app-capable,
+  apple-mobile-web-app-title); manifest `"scope": "/"`. M1 offline
+  degradado (la shell se cachea pero CSS/fuentes cross-origin no —
+  estructural, exige Tailwind autoalojado); M2 Play CDN "no pensado
+  para producción" (docs oficiales; migrar a v4 es decisión de Nova);
+  M3 CSP inviable sin refactor (40 handlers inline + script + style
+  inline); B1 sw.js `respondWith(undefined)` en fallo offline sin
+  caché; B2 vercel.json sin HSTS + Permissions-Policy (decisión para
+  Nova/oleada 5); B3 manifest sin description/id (opcional); B4 caché
+  v3 sin subir (correcto). Inventario: 40 handlers inline (23 onclick
+  + 7 oninput + 6 onchange + 3 onkeydown + 1 onfocus). Veredictos:
+  manifest PASS, sw.js precache PASS (6 archivos), iconos PASS,
+  index.html PASS (sin IDs duplicados, etiquetas balanceadas).
+- **Oleada 8, build/despliegue + revisión en vivo — H1 (ALTO): el
+  botón del PR #3 NO está en vivo.** El push-files usó `index.html`
+  como ruta de repo y actualizó el duplicado de la RAÍZ (36.620 B,
+  3 × btn-seguir) en vez de `public/index.html` (36.381 B, 0 ×
+  btn-seguir), que es lo que sirve Vercel (md5 de Vercel `/` ==
+  public/index.html de main). Los iconos SÍ están en vivo (md5 ==
+  main). El paquete preparado siempre estuvo correcto. **El fix va en
+  el PR #4:** incluir `public/index.html` y borrar el `index.html`
+  de la raíz (+ `tailwind.config.js`, también muerto). **H2:** los
+  iconos preparados difieren de main (esperado: regenerados
+  2026-11-16 22:00 UTC por el coordinador; canónicos = regenerados).
+  **H3 (MEDIO): fórmula 59/677 filas desvían 0.01** de la
+  recomputación exacta (todas almacenadas 0.01 POR DEBAJO, todas con
+  total exacto .xx5) — redondeo flotante histórico, no divergencia de
+  despliegue; **la expectativa "0 discrepancias" debe leerse con
+  tolerancia ±0.01**. H4: la tabla de diff es una foto (~21:57 UTC)
+  por las ediciones en paralelo. LOW: H5 archivos muertos en main
+  (tailwind.config.js, index.html raíz, .vscode/settings.json); H6
+  Dockerfile ubuntu:22.04 sin pin por digest, apt-get sin
+  --no-install-recommends; H7 package.json "main":
+  "public/app.js" engañoso, sin package-lock.json; H8
+  .dockerignore/.gitignore de main atrasados. **Cambios:** Dockerfile
+  pin de Crow por commit SHA (v1.3.4 → ae0fef0ee67eec897e401321b99b6
+  dd7cfbdc155, 2026-09-07; verificado por git fetch en /tmp, HEAD =
+  ae0fef0…, include/crow.h presente; fallback documentado: `git
+  clone --depth 1 --branch v1.3.4`); `.dockerignore` +=
+  `node_modules/`; `.gitignore` += `public/datos-en-vivo.json` y se
+  quitó la línea duplicada; `package.json` += `"test": "node
+  harness-pruebas.js"`. Revisión en vivo (solo GETs, sin 403): salud
+  JSON true, salud/db 200, canciones 200 (677, 14 páginas), export
+  677 IDs únicos, géneros total 677 (25 géneros), stats (677,
+  sin_calificar 0, promedio 16.4847, obras_maestras 76, mín 10.05,
+  máx 19.6, mediana 16.86), histograma 22/79/157/201/142/76,
+  artistas 423 (Cartel 44/43, Jenni 39/39; 3 productores puros 0/0),
+  Top 10 exacto, GOD 76 (IDs 8/84/286/587 en 19.00), 22/22 títulos,
+  9/9 flags, casos 531/629/631/576/478/627/633 correctos,
+  instrumental TRUE = 0. Vercel `/` 200, 36.381 B, md5 == main
+  public/index.html, 0 btn-seguir; iconos 200, 33.600/171.944 B,
+  md5 == main.
+- **Splash (agente dedicado) — implementado solo en el código
+  preparado.** index.html CSS #pantalla-carga (fixed, inset 0,
+  z-index 60, bg #040b1a, flex centrado), .splash-nota
+  clamp(96px, 30vw, 128px) con drop-shadow cian, .splash-barra
+  (12rem × 3px) reutilizando .linea-atardecer; markup (div
+  role=status, img /icon-192.png, "Evaluador Musical" con
+  .titulo-neon, barra); `<noscript>` oculta el splash sin JS. app.js:
+  `ocultarSplash()` (null-guarded, idempotente) al final de
+  cargarCatalogo en try (tras pintar filas + igualarFilas()) y en
+  catch (tras el mensaje de error + toast). Las respuestas obsoletas
+  y la recursión de paginación NO lo ocultan antes (solo la carga
+  activa lo oculta). 0 handlers inline en el bloque; 3 scripts
+  (Tailwind CDN, config, /app.js defer). Verificación: node --check
+  OK, HTML balanceado/0 errores/0 IDs duplicados, manifest/sw
+  correctos (iconos en precache, el splash usa /icon-192.png ya
+  cacheado). Pendiente: comprobación visual en navegador real (móvil
+  + escritorio); si app.js no carga, el splash queda visible (igual
+  que hoy la página no renderiza; fuera de alcance). Los 8 tests de
+  splash propuestos NO se añadieron al harness en esta ronda (la
+  oleada 1 ya había cerrado); quedan como propuesta para la próxima.
+- **Iconos regenerados (coordinador, 2026-11-16 ~22:00 UTC):** mismo
+  nota ♪ neón, un poco más pequeña y brillo más contenido (escala
+  0.80, Lanczos, canvas de degradado reconstruido desde las columnas
+  del borde + máscara difuminada, sin costuras; originales
+  respaldados en /tmp/icon-512-orig.png e /tmp/icon-192-orig.png).
+  Nuevos tamaños: icon-512.png 128.253 bytes (antes 171.944),
+  icon-192.png 24.515 bytes (antes 33.600). Bbox brillante 288×344 →
+  232×276 (~20% más pequeña). Verificado visualmente: misma nota,
+  más pequeña, brillo contenido, sin costura, sin orillas blancas,
+  degradado preservado. PNG válidos 512×512 y 192×192; manifest y
+  precache de sw.js correctos.
+
+### Qué se eliminó
+
+- `clamp`, `numJson`, `textoJson`/`boolJson`, flag global `ocupado`,
+  sobrecarga muerta `respSegura(int)`, enlace muerto `/styles.css`,
+  2 comentarios huérfanos (rondas 1-2, ya documentados). En esta
+  ronda: nada de código en producción; solo se eliminó la línea
+  duplicada de `.gitignore` (oleada 8). Los archivos muertos del repo
+  (index.html raíz, tailwind.config.js) se borran en el PR #4, no aquí.
+
+### Pendientes de la ronda 2 — estado final
+
+| Pendiente | Estado |
+|---|---|
+| GOD ≥19 redacción ">19" | RESUELTO (oleada 4: 3 sitios) |
+| CSP | Parcial: cabecera incremental aplicada; refactor completo pendiente con plan (oleada 5) |
+| 401 token-no-configurado vs clave incorrecta | RESUELTO (oleada 2) |
+| Pin/SRI Tailwind CDN | Pin 3.4.17 RESUELTO; SRI NO aplicable (sin hash oficial, sin CORS) |
+| M1/M2 validador/generador artistas | RESUELTOS (oleada 6) |
+| datos-reales.json viejo | DECIDIDO: no se actualiza (oleada 6) |
+| DB caída → 500 | RESUELTO → 503 (oleada 2) |
+| total_paginas: 0 | RESUELTO → 1 (oleada 2) |
+| Pin por hash Dockerfile | RESUELTO: Crow por SHA ae0fef0… (oleada 8); falta `docker build` real |
+| COMMIT antes de verificación en títulos | RESUELTO: anotado (oleada 6, B3) |
+| Omisión 330 en lote-4 | RESUELTO: anotado en el propio archivo (oleada 6, B1) |
+
+### Pendientes (con motivo, nunca maquillados)
+
+- **O1 (>18 vs ≥18):** DECIDIDO por Nova 2026-11-16 16:25: fuchsia es ≥18, las 2 en 18.00 exacto (IDs 154, 423) se quedan fuchsia. Redacción corregida a "≥18 fuchsia" en README.md, BASE.md y el comentario de app.js:631.
+- **PR #4:** contenido y aprobación de Nova pendientes. Lleva todos
+  los cambios de esta ronda + fix H1 (public/index.html) + borrado
+  de archivos muertos (index.html raíz, tailwind.config.js). Sin
+  pushes/merges/deploys por parte del agente.
+- **`docker build` real** del Dockerfile con el pin SHA, en laptop o
+  Render, antes de fusionar el PR #4 (en esta VM no se puede
+  compilar Docker; la sintaxis C++ sí se verificó contra Crow v1.3.4
+  @ ae0fef0, Asio 1.36.0 y stub pqxx con la jerarquía real de
+  excepciones de libpqxx 7.9.2).
+- **CSP completo** (refactor de ~40 handlers inline) y **migración
+  Play CDN → Tailwind v4 o build local**: decisiones de Nova.
+- **Comentario 29/34 invertido** (artistas-aplicar.sql,
+  schema.sql) y **cabeceras "NO CORRER TODAVÍA"** en los 5 SQL +
+  schema.sql: correcciones de comentario pendientes de aprobación.
+- **Auto-Deploy en Render** (no disparó en PR #1, #2; el despliegue
+  del PR #3 sigue pendiente de que Nova lo lance manual).
+- **Ahorro de Tokens** (tema pendiente desde 2026-11-16 14:08):
+  verificar el saldo real (conflicto 2%/976M vs 4%/1.9B sin verificar).
+- **Comprobación visual del splash** en navegador real (móvil +
+  escritorio) y los 8 tests de splash propuestos.
+
+### Verificación final (consolidación, 2026-11-16 ~22:10 UTC)
+
+- `node --check public/app.js && node --check public/sw.js && node --check harness-pruebas.js` → OK ×3.
+- `g++ -std=c++20 -fsyntax-only -include utility -I/tmp/crow-check/include -I/tmp/asio-check/asio/include -I/tmp/pqxx-stub main.cpp` → exit 0 (Crow v1.3.4 @ ae0fef0 confirmado por `git describe --tags`; la nota de la oleada 2 "Crow 1.2.0" era incorrecta).
+- `node harness-pruebas.js` → **353 PASS, 0 FAIL, 0 SKIP** (341 + 12 de la sección 24: 3 en 23b, 2 en 23k, 7 anclas).
+- Controles negativos sección 24: copia con `token_no_configurado` →
+  `token_no_configurado_X` → 350 PASS, 3 FAIL; copia con
+  `broken_connection` → `broken_connection_X` → 352 PASS, 1 FAIL.
+- `python3 -m pglast` en los 6 SQL → OK ×6.
+- Regeneración de artistas en /tmp (copia con BASE parcheada, sin
+  tocar el archivo aplicado) → byte-idéntica a artistas-aplicar.sql.
+- `python3 -c "import json; json.load(open('vercel.json'))"` → JSON
+  OK, CSP presente.
+- Estado final: .btn-seguir ×3 en public/index.html, splash ×4 +
+  ocultarSplash ×3, iconos 128.253/24.515 B (512×512, 192×192),
+  Tailwind 3.4.17, manifest scope "/", Dockerfile SHA ae0fef0…,
+  .gitignore con 1 ocurrencia de datos-en-vivo.json.
+- En vivo (solo GETs, ~22:10 UTC): `/api/salud` 200
+  (`admin_token_configurado: true`), `/api/canciones?limite=1` 200
+  con **total 678** — Nova agregó una canción en vivo durante la
+  auditoría (el catálogo ya no es 677; no es un fallo). Sin
+  escrituras al API ni a la DB en vivo en toda la ronda; no se tocó
+  `~/workspace/musica-review/` ni artefactos.
+
+## Auditoría ronda 3, oleada 4 (limpieza + decisiones cerradas + coherencia de docs) — 2026-11-16
+
+**Alcance:** limpieza de todo el paquete, re-verificación de los 8 puntos
+de decisiones cerradas de la ronda 2 + botón `.btn-seguir` + iconos, y
+corrección de la redacción GOD ">19" → "≥19" (confirmado por Nova
+2026-11-16 15:47: "GOD es ≥ 19, las 4 se quedan verdes"). Baseline:
+harness 228 PASS, 0 FAIL, 0 SKIP. Estado final: **harness 227 PASS,
+1 FAIL, 0 SKIP** — el FAIL no es de esta oleada: es el test R2-O2 de
+conteo de guardas, roto por una edición concurrente en main.cpp de
+otra oleada (7ª guarda de lectura en `GET /api/salud/db`, ver nota al
+final). Esta oleada no cambió ninguna lógica: solo 1 comentario en
+app.js, 1 línea en .gitignore y prosa en docs. `node --check` OK en
+app.js y harness. No se tocó main.cpp (otras oleadas lo editan en
+paralelo), ni artefactos, ni datos-en-vivo.json ni datos-reales.json,
+ni `~/workspace/musica-review/`. Nada en vivo. (OJO: las líneas de
+main.cpp citadas aquí son las vigentes al cierre de esta oleada;
+main.cpp creció de 1085 a 1102 líneas por ediciones paralelas durante
+la ronda 3, así que las citas viejas de otras entradas pueden haberse
+desplazado.)
+
+**Redacción GOD (solo prosa, cero cambios de operadores):** ">19" →
+"≥19" en README.md:125 (sección Colores), BASE.md (lista de decisiones
+cerradas) y public/app.js:611 (comentario COLORES). Verificado en vivo
+contra datos-en-vivo.json (solo lectura): 19.00 exacto = 4 canciones
+(IDs 8, 84, 286, 587), GOD ≥19 = 76, con `>` serían 72. El código ya era
+inclusivo (`if (nota >= 19)` en app.js:635, `FILTER (WHERE
+calificacion_final >= 19)` en main.cpp:777, harness:339). NO se tocaron
+las citas históricas: la entrada de la ronda 2 (hoy REVISION.md:286 y
+:367) conserva ">19" como cita del pasado con su contexto (ahí se
+explica el cambio), y la entrada de la ronda 1 (hoy REVISION.md:886)
+conserva su redacción original como historia. Sin prosa ">19" en
+comentarios de main.cpp (grep: solo el operador `>= 19`).
+
+**Limpieza — resultado: casi nada que quitar (el paquete ya estaba
+limpio tras la ronda 2).** Verificado sin hallazgo: 59 funciones en
+app.js (todas con uso real; los 4 ids `tab-btn-*` se usan por
+`getElementById('tab-btn-' + k)` en app.js:151, no por grep literal);
+45 funciones static en main.cpp (todas vivas; `respSegura` son 3
+sobrecargas intencionales, no duplicado); generar-artistas.py y
+validar-artistas.py (todas las funciones e imports con uso;
+`py_compile` OK); 38 clases CSS del `<style>` todas en uso; 62 ids del
+HTML todos referenciados; sin funciones duplicadas; sin TODO/FIXME/
+console.log/debugger; sin código comentado; sin includes sin uso en
+main.cpp; .dockerignore cubre harness, *.sql, *.py, *.md, public/,
+`.git`, `revision-datos.json` (y `public/datos-en-vivo.json` ya quedaba
+cubierto por `public/`). Duplicaciones ya documentadas en la ronda 2
+(timeout apiFetch/cargarCatalogo, subconsulta EXISTS, bucle de
+expiración) siguen como están, sin tocar.
+- Único cambio de limpieza: `.gitignore` no cubría
+  `public/datos-en-vivo.json` (export fresco en vivo, 302 KB, mismo uso
+  local que `datos-reales.json`): añadido junto a
+  `public/datos-reales.json`. El archivo en sí no se tocó.
+
+**Decisiones cerradas — 8/8 PASS + botón + iconos PASS:**
+1. Colores/rampas PASS: `>= 19` verde (app.js:635), `>= 18` fuchsia,
+   `> 17.8` violeta, resto cian; `suave()` smoothstep y `grad()` con
+   `0.9 * suave(t)` (app.js:363-368); ventanas 17.5–17.8 (0.3),
+   18.5–19 (0.5), 17.8–18 (0.2, ancho por defecto); mezcla Top 11–20
+   por puesto con la misma rampa (app.js:651).
+2. Top global PASS: CTE `RANK() OVER (ORDER BY calificacion_final DESC
+   NULLS LAST, DESEMPATE)` sobre TODA la tabla antes de filtrar
+   (main.cpp:743); dorado solo por `rank_global <= 10` con nota > 0.
+3. Desempate PASS: base, Importancia, bonos, Descubrimiento único,
+   Coro, Ritmo, Letra, id ASC (main.cpp:320-325); `DESEMPATE_ASC`
+   espejo exacto con id DESC (main.cpp:312-318).
+4. Fórmula PASS: `ritmo*0.35 + letras*0.25 + coro*0.40 + 4 bonos +
+   importancia + arte_visual`, redondeo a 2 decimales, máx 20
+   (main.cpp:995-996).
+5. Géneros/etiquetas PASS: 29/29 idénticos y en el mismo orden en
+   app.js:296, main.cpp:278 y schema.sql:23-29; 11/11 en app.js:307,
+   main.cpp:279 y schema.sql:30-32 (verificado por script, no a ojo).
+6. Artistas PASS: `LEFT JOIN cancion_artistas` sin HAVING en todo
+   main.cpp (grep: 0 ocurrencias), `GROUP BY a.id, a.nombre`
+   (main.cpp:880-881); los 3 productores puros salen con 0/0 por el
+   LEFT JOIN.
+7. Sliders/export/token PASS: 4 `type="range"`, 0 `type="number"`, 0
+   botones +/-; comentario "no un total previsto" (app.js:282);
+   exportar sin `autorizado()` (main.cpp:823; POST/PUT/DELETE sí lo
+   exigen, main.cpp:898/958/1022/1084); token en `sessionStorage`,
+   filtros en `localStorage` (app.js:486-513).
+8. Editar/Pendientes/histograma PASS: `#btn-editar-activa` solo Editar
+   en Evaluar (index.html:252, app.js:237), 0 "eliminar" en index.html;
+   `stat-pending` con `sin_calificar` (app.js:528-533); histograma con
+   8 rangos (main.cpp:805-809); "radar" solo aparece en 2 comentarios
+   ("reemplaza al radar"), sin código de radar.
+- Botón `.btn-seguir` PASS: CSS index.html:155-160, botón
+  index.html:238 con `min-h-[44px]` y `onclick` intactos.
+- Iconos PASS: `file` confirma PNG 192x192 (33,600 B) y 512x512
+  (171,944 B); referenciados en manifest.webmanifest y en el precache
+  de sw.js.
+
+**Coherencia de docs — corregido:** README.md "228 pruebas" y el
+desglose 197→228 (+31 ronda 2) coinciden con el harness al inicio de
+esta oleada (al cierre: 227/1 por la edición concurrente, ver nota
+abajo); tamaños citados en la ronda 2 (main.cpp 1085, app.js 1137,
+harness 1054, index.html 325) coinciden con los actuales salvo
+main.cpp, hoy en 1102 líneas por ediciones paralelas; conteos SQL
+verificados (lote-1: 8, lote-2-3: 94, lote-4: 128, títulos: 22 UPDATEs);
+schema.sql:101-102 ya dice 94 (corregido en la ronda 2); rate limit en
+7 GETs al cierre (main.cpp:688/699/772/796/825/847/873) — la 7ª es
+`GET /api/salud/db`, añadida en paralelo (ver nota abajo); la ronda 2
+dejó `salud`/`salud/db` sin límite a propósito. README.md Despliegue:
+añadida la línea de PR #3 (fusionado en main fb0f900d el 2026-11-16,
+despliegue manual pendiente) — antes solo decía PR #1 y PR #2.
+BASE.md: nota de estado nueva arriba (la base de las 13:00 ya está
+aplicada en vivo; los "Nada en vivo" viejos quedan como historia).
+No existe `migraciones/`: los 5 SQL viven en la raíz del paquete (el
+alcance de esta oleada los nombraba así por error; no es divergencia
+del paquete).
+- **Nota de PR #3 (no re-verificada en vivo por esta oleada):** la
+  fusión en main fb0f900d y la resolución de la subida de iconos se
+  registran según el parte del coordinador y MEMORY.md 2026-11-16
+  ~15:46–15:47; REVISION.md no lo recogía hasta esta entrada. El
+  despliegue manual en Render sigue pendiente.
+
+**Observaciones (sin cambio, para Nova / coordinador):**
+- O1 (misma clase que GOD, fuera del alcance autorizado): la prosa
+  dice ">18 fuchsia" pero el código es `>= 18` (app.js:636) y el
+  harness ya dice "≥18 fuchsia" (harness:340). Hay 2 canciones en
+  18.00 exacto (IDs 154, 423): en código son fuchsia. Si Nova lo
+  confirma, la redacción ">18" → "≥18" se corrige igual que GOD.
+  No se tocó: el encargo solo autorizaba GOD.
+- O2: la entrada de la ronda 2 cita "app.js:339" para el `>= 19`;
+  hoy el umbral está en app.js:635 y harness:339 es el test que lo
+  ancla — probable confusión de archivo al redactar. Se deja como
+  historia; la referencia correcta queda en esta entrada.
+- O3: 0 canciones en 17.80 exacto (verificado en datos-en-vivo.json),
+  así que el umbral violeta `> 17.8` no tiene caso borde en vivo hoy.
+- **FAIL del harness al cierre (causa externa a esta oleada):**
+  `R2-O2 main.cpp: 13 guardas dentro del try (4 auth + 6 lectura +
+  3 cuerpo 413), 0 fuera (dentro 14, fuera 0)`. Otra oleada añadió en
+  paralelo una guarda de lectura a `GET /api/salud/db`
+  (main.cpp:688: `excedeLimiteLectura`), con lo que las guardas de
+  lectura pasan de 6 a 7 y el total dentro del try de 13 a 14 (fuera
+  sigue en 0: la guarda está dentro del try, bien puesta). Esta oleada
+  no tocó main.cpp ni el harness. Además, la ronda 2 dejó
+  `salud`/`salud/db` sin límite a propósito (healthchecks): si el
+  límite en `salud/db` es intencional, el test R2-O2 (harness:1038)
+  debe actualizarse a 14 guardas (4 auth + 7 lectura + 3 cuerpo);
+  si no lo es, hay que quitar la guarda. Decisión del coordinador.
+- Pendientes heredados de la ronda 2 (sin cambio): CSP, distinción
+  401, sincronización de datos de la vista previa (la hace otro
+  agente), validador/generador de artistas (M1/M2), fixture
+  datos-reales.json del 13-nov con la sección 8 del harness esperando
+  la distribución vieja, `total_paginas: 0` con catálogo vacío, COMMIT
+  antes de la verificación en titulos-correcciones.sql, anotar la
+  omisión 330 en el propio lote-4-aplicar.sql.
+
+## Botón "seguir agregando" + logo nuevo — 2026-11-16
+
+**Botón "Añadir y seguir agregando" (public/index.html):** era un botón
+fantasma con borde y se veía básico junto al principal. Ahora usa la
+clase nueva `.btn-seguir`: degradado 90° cian #22d3ee → violeta claro
+#a78bfa → fuchsia claro #e879f9, texto oscuro #040b1a, sombra neón
+cian/violeta, brillo al hover. El principal "Añadir canción" sigue con
+su degradado atardecer. Vista previa sincronizada con el cambio.
+
+**Logo nuevo (public/icon-192.png, icon-512.png):** el anterior eran
+dos rombos sin referencia musical. Elegido por Nova: nota musical ♪
+en cian neón con brillo dorado sobre fondo azul oscuro #040b1a (a
+juego con el favicon ♪ en cian). La primera versión tenía las esquinas
+blancas (orilla fea); se regeneró a fondo completo sin blanco.
+Manifest sin cambios (mismas rutas y tamaños). Al desplegar, Android
+puede tardar en actualizar el icono instalado o requerir re-agregar
+la app a la pantalla principal.
+
+## Aplicación en vivo + fix del histograma — 2026-11-16
+
+**Aplicación completa (PR #1, main e44596d):** deploy en Render, ADMIN_TOKEN
+≥24 confirmado, 5 SQL aplicados en orden (lote-1, lote-2-3, lote-4,
+títulos, artistas). Verificado en vivo: total 677, Top 10 exacto
+(144, 167, 213, 116, 307, 606, 348, 29, 399, 145), 22/22 títulos,
+/api/artistas con 423 artistas, export y lista en 200.
+
+**Corrección 330 (en vivo, no en código):** lote-4-aplicar.sql línea 120
+cambiaba el género de la 330 'Sola' a Reggaeton pero olvidaba
+`banda_sonora = TRUE` (decisión: SÍ, The Crew 2). Corregido en la DB
+viva con `UPDATE canciones SET banda_sonora = TRUE WHERE id = 330 AND
+genero = 'Reggaeton'` (verificado: 9/9 banderas). El archivo del repo
+conserva la omisión como registro de lo aplicado; no re-correrlo.
+
+**Fix del histograma (PR #2, main 9a6506ee, solo main.cpp):** el
+endpoint nuevo `/api/canciones/histograma` daba 500 en vivo:
+`ERROR: column "rango" does not exist`. Postgres no permite usar el
+alias `rango` dentro del CASE del ORDER BY con GROUP BY. La consulta
+va ahora envuelta en subconsulta (con comentario que explica el
+motivo); mismo orden de rangos. Verificado en vivo tras el deploy:
+200 con 10-12: 22, 12-14: 79, 14-16: 157, 16-18: 201, 18-19: 142,
+19-20: 76 (total 677). Harness 197 PASS, 0 FAIL.
+
+## Auditoría ronda 2 + revisión en vivo — 2026-11-16
+
+**Alcance:** 8 oleadas en paralelo (pruebas, errores, logs, limpieza,
+seguridad, decisiones cerradas, SQL, revisión en vivo). Baseline al
+inicio: harness 197 PASS, 0 FAIL; sintaxis C++ OK. Estado final
+verificado por el coordinador: **harness 228 PASS, 0 FAIL, 0 SKIP**;
+`node --check` OK en app.js, sw.js y harness; sintaxis C++ OK.
+Tamaños finales: main.cpp 984→1085 líneas, app.js 1106→1137,
+harness 937→1054, index.html 319→325 (el +6 es el botón .btn-seguir
+del principal, ver abajo). Nada en vivo (la ronda 2 no toca Render ni
+Supabase; lo en vivo solo se leyó con GETs).
+
+**Verificación del fix del histograma (SQL, Postgres real 16.2):** la
+consulta ORIGINAL reproduce el error en vivo literal (`column "rango"
+does not exist`); la corregida (subconsulta) devuelve exactamente
+10-12: 22, 12-14: 79, 14-16: 157, 16-18: 201, 18-19: 142, 19-20: 76,
+total 677, en orden, con bordes correctos (NULL/0 → sin_calificar al
+final, menos-10 primero). Barrido de TODAS las consultas de main.cpp:
+ninguna otra usa un alias dentro de una expresión del ORDER BY con
+GROUP BY (géneros y artistas usan alias desnudos, legal). Las 5
+migraciones + schema.sql ejecutan limpias en Postgres real (0 errores,
+0 UPDATE 0) con el estado final exacto (423 artistas, 680/330/14).
+
+### Pruebas (+14, harness 197→211 en esta oleada)
+- Sección 5b (harness:295-325, 6 pruebas): fija la consulta SQL real
+  del histograma (subconsulta, sin ORDER BY dentro, ORDER BY exterior
+  con rango como columna real, 8 rangos, bordes, sin andamiaje de bins
+  + fallback del frontend). Control negativo: revertir el fix → 4 FAIL.
+- Sección 5c (harness:326-352, 8 pruebas): orden completo de
+  DESEMPATE/DESEMPATE_ASC por posición de texto (control negativo:
+  permutar Coro/Ritmo → 1 FAIL); anclajes de umbrales/ventanas/dorado
+  en app.js; rangos de filtrarRango; colorBarra con 8 rangos; precache
+  de /, /index.html, /app.js en sw.js. Corregida la etiqueta imprecisa
+  del test P9 (el endpoint sin bins devuelve 0 filas con catálogo
+  vacío; el frontend cubre con "Sin datos todavía.").
+
+### Control de errores (2 ALTOS + 4 MEDIOS + 3 BAJOS, todos corregidos)
+- H1 ALTO: campos opcionales ausentes lanzaban 500 (`operator[]` de
+  Crow lanza si falta la clave). Nuevos `textoOpcional`/`boolOpcional`
+  con `has()` (main.cpp:367-383); POST e info usan defecto o 400;
+  `leerArtistasJson` rechaza no-objeto y nombre ausente con 400.
+- H2 ALTO: PUT /info parcial ponía instrumental/banda_sonora en false
+  (main.cpp:1038-1039: ahora conserva los valores actuales si no
+  vienen; tipo incorrecto → 400).
+- H3: timeout 30 s en las 7 lecturas que no lo tenían (nuevo
+  `fetchConTimeout`, app.js:59; las 8 lecturas lo usan).
+- H4: 429 de lectura colapsaba en SIN CONEXIÓN (nuevo `toastLectura`,
+  app.js:73; `errorHttp` pega el status, app.js:68).
+- H5: toast GUARDANDO… salía antes de validar (ahora solo en
+  agregarCancion/calificarCancion tras validar).
+- H6: guardas (`autorizado`, `excedeLimiteLectura`,
+  `cuerpoDemasiadoGrande`, `id<=0`) movidas DENTRO del `try` en 10
+  rutas (antes escapaban al 500 por defecto de Crow).
+- H7: NaN rechazado con 400 (`isfinite` en calificar y `parseDoble`).
+- H8: `mostrarErrorHttp` cubre cualquier 5xx (502/504 incluidos), 413
+  nuevo y cuerpo 400 truncado a 120.
+- H9: comentario del pool 500 → 503.
+- Sección 22 del harness (R2-O2, 12 pruebas, harness:1018-1050).
+- Eliminados `boolJson` y `textoJson` (sin uso tras el cambio).
+
+### Logs (4 hallazgos, todos corregidos)
+- H1 MEDIO: `sanitizarLog` solo tapaba la URL exacta; ahora tapa la
+  URL completa, la contraseña suelta (forma URI y `password=`, con
+  decodificación %XX) y el ADMIN_TOKEN (main.cpp:35-37, 53-111, 646-649;
+  nuevos `reemplazarTodo`, `extraerPasswordUrl`,
+  `decodificarPorciento`; truncado a 500 conservado). Prueba funcional
+  propia `/tmp/test_logs_r2.cpp`: LOGS-TEST OK (6 grupos).
+- H2: el pool recreaba la conexión sin registrar la causa (ahora
+  captura `e.what()` y lo registra sanitizado, main.cpp:595-596).
+- H3: `respuestaErrorDb` acepta `id` opcional y las 3 rutas con id lo
+  pasan (main.cpp:175-177, 999, 1061, 1075).
+- H4: `console.warn` de JSON inválido en agregar ya lleva endpoint
+  (app.js:899). Sección 18b del harness (R2-LOG, 5 pruebas).
+- Verificado: las 11 rutas con DB loguean endpoint + mensaje; Crow no
+  registra cabeceras (el token no puede filtrarse por ahí).
+
+### Limpieza (4 MEDIOS corregidos)
+- M1: sobrecarga muerta `respSegura(int)` eliminada (main.cpp:93-97).
+- M2: 2 comentarios huérfanos eliminados (main.cpp:292-297).
+- M3: entrada obsoleta `public/styles.css` eliminada de .gitignore.
+- M4: `harness-pruebas.js` añadido a .dockerignore (se colaba en el
+  build de Docker).
+- Observados sin tocar: duplicación de timeout (apiFetch/cargarCatalogo
+  conservan su AbortController propio; refactor a medias de la oleada
+  2), subconsulta EXISTS duplicada (renumerar parámetros: riesgo mayor
+  que beneficio), bucle de expiración duplicado (intencional y
+  documentado).
+- Verificado limpio: sin código muerto en todo el paquete, sin
+  secretos, vercel/Dockerfile coherentes, schema 29/11.
+
+### Seguridad (3 correcciones)
+- M1 MEDIO: rate limiting en los 4 GET sin límite (stats, histograma,
+  géneros, artistas; main.cpp:755, 779, 830, 856; 429 + Retry-After
+  60). salud/salud/db quedan sin límite a propósito (healthchecks).
+- M2 MEDIO: límite de cuerpo 64 KB → 413 antes de `crow::json::load`
+  en POST, PUT calificar y PUT info (`LIMITE_CUERPO`,
+  `cuerpoDemasiadoGrande`, main.cpp:258-259, 882, 942, 1006).
+- M3: guarda `ALLOWED_ORIGIN=*` (main.cpp:636-647 aprox.): se trata
+  como no definido (vuelve al dominio de Vercel) con aviso en log.
+- Verificado sin hallazgo: fail-closed ≥24, comparación en tiempo
+  constante, 12 exec_params, XSS (15 innerHTML revisados, todo con
+  escapeHtml/textContent), headers en todas las respuestas, validación
+  estricta, cero secretos. Fix del histograma: consulta estática sin
+  entrada de usuario, sin superficie de inyección. Export público: no
+  es hallazgo (decisión explícita de Nova).
+
+### Decisiones cerradas + mantenimiento (pasan todas)
+- Verificados los 8 puntos: colores y rampas, Top global por CTE
+  RANK() antes de filtrar, desempate completo y Peores espejo con id
+  DESC, fórmula, 29 géneros idénticos y en el mismo orden en app.js y
+  main.cpp (29/29) y 11 etiquetas (11/11), artistas con LEFT JOIN sin
+  HAVING (423 con los 3 productores puros en 0/0), sliders solo por
+  arrastre sin totales previstos, export público, token en
+  sessionStorage, Editar en Evaluar sin Eliminar, Pendientes, histograma
+  sin radar. Ningún cambio de código en esta oleada.
+- BAJA pendiente de Nova (sin cambio de código): el umbral GOD es
+  inclusivo (`>= 19`) en app.js:339, main.cpp (FILTER `>= 19`) y el
+  harness ("19.00 → verde puro"; GOD 76 = ≥19, con `>` serían 72),
+  pero la decisión está redactada ">19 verde". Afecta a 4 canciones en
+  19.00 exacto (IDs 8, 84, 286, 587). Falta que Nova confirme que GOD
+  es nota ≥ 19 y se ajuste solo la redacción.
+- DOC: README.md corregido por el coordinador (despliegue: el
+  auto-deploy NO disparó en PR #1 ni #2; hay que lanzar Manual Deploy
+  o revisar Auto-Deploy; cifras de pruebas 197→228).
+
+### SQL (0 ALTOS; 2 MEDIOS + 5 BAJOS)
+- M1: `validar-artistas.py:106-115` no reconoce
+  `UPDATE artistas SET nombre = 'Lil Nas X' WHERE id = 122` (sin
+  `nombre_norm`, con `WHERE id`): sale con 1 ERROR y se salta ese
+  renombre en la simulación sin que ningún spot-check lo delate. Fix
+  propuesto: extender el regex a la forma `WHERE id = N`. No tocado
+  (tooling, pendiente de decisión).
+- M2: regenerar `artistas-aplicar.sql` con `generar-artistas.py`
+  pierde la línea 1012 (única fuente de 'Lil Nas X'; el generador no
+  tiene ese renombre en EXPLICIT_RENAMES) y los comentarios añadidos a
+  mano (incl. la corrección de la nota de la 633, que el regenerado
+  reintroduce obsoleta). Sin impacto en vivo (ya aplicado). Fix
+  propuesto: carve-out explícito o advertencia de no regenerar sin
+  re-aplicar los edits manuales. Pendiente de decisión.
+- B1: lote-4-aplicar.sql:120 conserva la omisión de banda_sonora=TRUE
+  para la 330 como registro de lo aplicado (fix en vivo verificado
+  9/9); su rollback tampoco restaura la bandera. No tocado.
+- B2: schema.sql:101 decía "75 UPDATEs" para lote-2-3; corregido a 94
+  por el coordinador.
+- B3: titulos-correcciones.sql:88 pone el COMMIT antes de la
+  verificación del PASO 3 (al revés que los otros lotes):
+  inconsistencia, no bug. No tocado (archivo aplicado).
+- B4: harness inestable entre corridas por las ediciones concurrentes
+  (los FAILs R2-O2 vistos a mitad de la ronda eran trabajo en curso de
+  la oleada 2 y quedaron en verde al final: 228/0/0).
+- B5: 106 canciones `.xx5` difieren 0.01 por redondeo histórico
+  (artefacto de coma flotante); dato histórico y decisión cerrada, no
+  se toca; no afecta al histograma (bordes enteros).
+
+### Revisión en vivo (solo lectura, cero discrepancias)
+- Código desplegado (GitHub main 9a6506ee) vs preparado: main.cpp y los
+  otros 20 archivos del PR #1 IDÉNTICOS. Diferencias documentadas:
+  REVISION.md +24 líneas (esta entrada, apunte local sin pushear);
+  index.html con `.btn-seguir` e iconos nuevos (cambios de Nova,
+  PR #3 pendiente); tailwind.config.js y .vscode/settings.json existen
+  en el repo desde f3d68bd y no están en el paquete (no es divergencia).
+  Archivos de investigación ausentes del repo por diseño.
+- En vivo (solo GETs): salud JSON con admin_token_configurado true,
+  salud/db 200, canciones 200 (677, 14 páginas), exportar 677 (IDs
+  1–677 únicos), géneros 25/25 exactos (total 677), stats (677,
+  sin_calificar 0, promedio 16.48, obras_maestras 76, mín 10.05, máx
+  19.6, mediana 16.86), histograma 200 (22/79/157/201/142/76),
+  artistas 423 (Cartel de Santa 44/43, Jenni Rivera 39/39; los 3
+  productores puros en 0/0), Top 10 exacto con 0 discrepancias de
+  fórmula en 677, 22/22 títulos, 9/9 banderas, 531/629/631/576/478/627/
+  633 correctos. (La API devolvió rate-limit 403 en una oleada por IP
+  compartida; se verificó por clon git, misma fuente de verdad.)
+- Vista previa: por el fix del histograma NO hace falta sincronizar
+  (solo backend; la vista previa calcula su histograma en cliente y
+  los conteos son numéricamente idénticos). Pendiente de sincronizar
+  DATOS (preexistente desde la ronda 1, ahora mayor): 228 géneros, 23
+  títulos (22 + 629) y 9 banderas difieren entre la vista previa y en
+  vivo; en el Top 10 de la vista previa la 213 y la 348 muestran el
+  género viejo y la 116 el título viejo con el typo. Decisión del
+  principal/Nova; no se tocó el artefacto.
+
+### Cambios de Nova en paralelo (alcance ronda 2, no revertidos)
+- Botón "Añadir y seguir agregando": restyle con degradado
+  cian→violeta→fuchsia y glow (clase `.btn-seguir`, index.html:146-152,
+  229); texto, `onclick` y `min-h-[44px]` intactos. Verificado por las
+  oleadas 1, 4 y 6.
+- Logo: Nova eligió la nota ♪ sin orilla blanca (de 3 opciones);
+  icon-192.png e icon-512.png son PNG válidos en el paquete, referenciados
+  en manifest.webmanifest y precacheados en sw.js. La vieja nota "sin
+  iconos, favicon ♪" queda superada por esta decisión.
+- PR #3 (rama diseno-boton-y-logo): el botón ya se subió vía
+  push-files (commit bb4509e1). Los iconos PNG NO se pueden subir con
+  las herramientas de GitHub (create_or_update_file los guarda como
+  texto base64, no como PNG; el archivo malo se eliminó de la rama) y
+  la cuenta de Nova no admite inicio de sesión con contraseña. Subida
+  de iconos pendiente: por navegador del celular o por Nova desde la
+  laptop. (MEMORY.md 2026-11-16 ~15:36.)
+
+### Pendientes de la ronda 2 (no maquillados)
+- Nova: GOD ≥ 19 vs ">19" (solo redacción); CSP (refactor grande:
+  onclick inline + Tailwind por CDN); distinción 401 token-no-
+  configurado vs clave incorrecta; sincronización de datos de la vista
+  previa (228 géneros, 23 títulos, 9 banderas).
+- Principal: Tailwind por CDN sin pin de versión ni SRI
+  (index.html:14; no se editó por la edición paralela en curso);
+  subida de los iconos del PR #3 (bloqueo de herramientas GitHub +
+  login); validador/generador de artistas (M1/M2); `datos-reales.json`
+  es del 13-nov (pre-lotes 1–4): la sección 8 del harness espera la
+  distribución vieja (Hip Hop 39, Otro 36, OST 4) y fallaría si se
+  regenera el export desde vivo — actualizar el fixture y la sección 8
+  exige decisión; de momento pasa porque el fixture no se tocó.
+- Sin decisión: DB caída → 500 en vez de 503 (el stub de sintaxis no
+  define `broken_connection`; requiere verificar con libpqxx real);
+  `total_paginas: 0` con catálogo vacío (cosmético, el frontend lo
+  compensa con `|| 1`); pin por hash en Dockerfile (opcional, bajo
+  riesgo); COMMIT antes de la verificación en titulos (B3); anotar la
+  omisión 330 en el propio lote-4-aplicar.sql (hoy solo vive en
+  REVISION.md y memoria).
+- Verificaciones finales del coordinador (estado final, tras las 8
+  oleadas y los cambios del principal): node --check OK (app.js, sw.js,
+  harness); C++ SYNTAX OK; harness 228 PASS, 0 FAIL, 0 SKIP; greps de
+  presencia de cada fix (rate limit en 6 GETs, LIMITE_CUERPO,
+  textoOpcional/boolOpcional, sanitizarLog reescrito, fetchConTimeout,
+  secciones 5b/5c/22/18b); zonas del principal intactas
+  (.btn-seguir + min-h-[44px], iconos PNG válidos).
+
 ## Auditoría ronda 1 + lotes 2 y 3 aprobados — 2026-11-16
 
 **Lotes 2 y 3 APROBADOS por Nova (sin vetos):** lote-2-3-aplicar.sql,

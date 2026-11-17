@@ -9,8 +9,8 @@ node_modules/
 *.exe
 *.pdb
 *.log
-public/styles.css
 
 # Datos reales del catalogo (solo para la vista previa local, nunca se suben)
 public/datos-reales.json
+public/datos-en-vivo.json
 revision-datos.json

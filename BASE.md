@@ -1,5 +1,14 @@
 # Base de trabajo — fijada 2026-11-13 08:34 CST, actualizada 2026-11-16 ~13:00 CST por el usuario
 
+## Nota de estado 2026-11-16 (auditoría ronda 3, oleada 4) — la base ya está en vivo
+
+La base guardada a las ~13:00 CST YA está aplicada en vivo (PR #1 main
+e44596d + PR #2 main 9a6506ee, 5 SQL en orden, fix 330, histograma
+verificado; PR #3 fusionado en main fb0f900d, despliegue pendiente).
+Los "Nada en vivo" de las entradas de abajo son el estado en el momento
+en que se guardó cada base, no el estado actual: se conservan como
+historia y no se reescriben.
+
 ## Nueva base 2026-11-16 ~13:00 CST — tabla de artistas + lotes 2 y 3 + 29 géneros
 
 El usuario: "Hora de guardar la nueva base."
@@ -139,14 +148,17 @@ empezar desde el código original ni desde un mockup nuevo.
   lote-2-otro-verificacion.md, lote-3-villano-verificacion.md,
   decisiones-colaboraciones.md, diseno-artistas.md).
 - Vista previa: artefacto `vista-previa-evaluador-musical` (versión corregida
-  tras la auditoría del 2026-11-13 ~08:27 CST), con las 677 canciones reales.
+  tras la auditoría del 2026-11-13 ~08:27 CST), con las 678 canciones reales
+  (re-sincronizada 2026-11-16 ~16:42 CST con la 678 "Freaks"; antes 677).
 - NADA de la base está aplicado al Evaluador real (GitHub/Vercel/Render/Supabase).
+  — Ver nota de estado arriba: esta frase es historia; la base YA está aplicada
+  en vivo desde 2026-11-16 (PR #1 y PR #2; PR #3 fusionado, despliegue pendiente).
 
 ## Decisiones cerradas que la base ya cumple (verificar antes de cada cambio)
 
 - Colores: Top 10 global dorado con halo animado SOLO por puesto (decisión
-  2026-11-13 19:19 CST, sin exigir nota ≥19), GOD >19 verde, >18 fuchsia,
-  >17.8 violeta, resto cian. Degradado 0-90 con curva suave (smoothstep):
+  2026-11-13 19:19 CST, sin exigir nota ≥19), GOD ≥19 verde, ≥18 fuchsia,
+  ≥17.8 violeta, resto cian. Degradado 0-90 con curva suave (smoothstep):
   cada ventana empieza en el color puro de la categoría y sube hasta 90%
   en el umbral; ventanas 0.3 antes de 17.8 (17.5–17.8, aprobado
   2026-11-15), 0.5 antes de 19 (18.5–19) y 0.2 antes de 18 (17.8–18);
@@ -166,7 +178,7 @@ empezar desde el código original ni desde un mockup nuevo.
   contadores en "—". Histograma real con barras clicables (filtra por rango)
   y botón para quitar el filtro. Radar eliminado (frontend + backend).
 - Género obligatorio al agregar, autocompletado de artista, chips con conteo,
-  paginación "1-50 DE 677", botón Guardar/Actualizar según tenga nota,
+  paginación "1-50 DE <total>" (678 en vivo 2026-11-16; el número es dinámico), botón Guardar/Actualizar según tenga nota,
   Editar/Eliminar 44×44, avisos arriba en celular.
 - Backend: histograma (GROUP BY), stats con mediana/mín/máx, validación de
   género/tipo, PORT seguro, W.abort() explícito, rank_global por CTE,
@@ -174,12 +186,15 @@ empezar desde el código original ni desde un mockup nuevo.
 - Export público (decisión del usuario 2026-11-13 08:10 CST).
 - DB al final: las listas de géneros ya están en el código preparado (29
   valores, incluidos Lofi y Hardcore); los SQL de los lotes 1, 4, 2+3 y de
-  artistas están escritos y verificados, sin aplicar. Instrumental y Banda
-  sonora como casillas aparte en el código; las columnas no existen aún en
-  la DB en vivo.
-- Pendientes fuera de la base: confirmar ADMIN_TOKEN en Render (≥24),
-  título/artista de la ID 677 por API, aplicar fase por fase con verificación
-  en vivo (el usuario no tiene la laptop ahora; sin prisa).
+  artistas están escritos y verificados, **aplicados en vivo 2026-11-16**
+  (PR #1; el "sin aplicar" de arriba es historia). Instrumental y Banda
+  sonora como casillas aparte en el código; las columnas **ya existen**
+  en la DB en vivo.
+- Pendientes fuera de la base: **RESUELTOS 2026-11-16** — ADMIN_TOKEN
+  confirmado en Render (≥24), título/artista de la ID 677 verificados por
+  API ("MONTERO (Call Me By Your Name)" / Lil Nas X), aplicación fase por
+  fase completada con verificación en vivo (PR #1 + PR #2). Pendiente:
+  PR #4 (cambios de la ronda 3) y despliegue manual del PR #3.
 
 ## Actualización 2026-11-13 08:40 CST (nueva referencia para las siguientes modificaciones)
 

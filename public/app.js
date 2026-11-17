@@ -36,15 +36,54 @@
         async function mostrarErrorHttp(res, porDefecto) {
             let msg = porDefecto;
             if (res.status === 400) {
-                try { const t = (await res.text()).trim(); if (t) msg = t.toUpperCase(); }
+                // El cuerpo se trunca a 120: un 400 con cuerpo largo (p. ej.
+                // una página de error del proxy) no debe llenar el toast.
+                try { const t = (await res.text()).trim(); if (t) msg = t.slice(0, 120).toUpperCase(); }
                 catch (e) { console.warn('[Evaluador] mostrarErrorHttp (400):', e); }
             }
-            else if (res.status === 401) msg = 'CLAVE INCORRECTA';
+            // 401 con token no configurado en el servidor (ronda 3, oleada 2):
+            // el backend lo marca con la cabecera X-Auth-Error. Sin cabecera
+            // (mock del harness, proxy viejo) sigue siendo CLAVE INCORRECTA.
+            else if (res.status === 401) msg = (res.headers && res.headers.get('X-Auth-Error') === 'token_no_configurado') ? 'CLAVE NO CONFIGURADA EN EL SERVIDOR' : 'CLAVE INCORRECTA';
+            // 403 (B3, ronda 4): el backend nunca lo emite, pero un proxy o
+            // Render sí pueden (WAF, IP bloqueada): antes caía en el mensaje
+            // genérico de la acción y no se sabía que era un rechazo.
+            else if (res.status === 403) msg = 'ACCESO DENEGADO';
             else if (res.status === 404) msg = 'NO ENCONTRADA';
             else if (res.status === 409) msg = 'ERROR: LA CANCIÓN YA EXISTE';
+            else if (res.status === 413) msg = 'DATOS DEMASIADO GRANDES';
             else if (res.status === 429) msg = 'DEMASIADOS INTENTOS, ESPERA';
-            else if (res.status === 500 || res.status === 503) msg = MSG_SIN_CONEXION;
+            // Cualquier 5xx es "sin conexión": 502/504 del proxy o de
+            // Render al despertar también (antes solo 500/503 caían aquí
+            // y el resto mostraba el mensaje genérico de la acción).
+            else if (res.status >= 500) msg = MSG_SIN_CONEXION;
             showToast(msg, true);
+        }
+
+        // Lecturas con timeout (ronda 2, oleada 2): solo apiFetch y
+        // cargarCatalogo tenían los 30 s (E4); el resto de fetch() colgaba
+        // sin aviso si el servidor no respondía. Un solo helper para todas.
+        async function fetchConTimeout(url, opciones = {}) {
+            const ctrl = new AbortController();
+            const temporizador = setTimeout(() => ctrl.abort(), 30000);
+            try { return await fetch(url, { ...opciones, signal: ctrl.signal }); }
+            finally { clearTimeout(temporizador); }
+        }
+        // Error HTTP con el estado pegado, para que el catch distinga el
+        // 429 (rate limit) del fallo de conexión: antes todo era
+        // SIN CONEXIÓN, también el 429.
+        function errorHttp(res, url) {
+            // La query no va en el mensaje (ronda 4, oleada LOGS): la URL
+            // del catálogo lleva ?buscar= con el término del usuario y ese
+            // Error se registra con console.error en los catch; la ruta y
+            // el estado bastan para diagnosticar el fallo.
+            const ruta = String(url).split('?')[0];
+            const e = new Error('HTTP ' + res.status + ' en GET ' + ruta);
+            e.status = res.status;
+            return e;
+        }
+        function toastLectura(e) {
+            showToast(e && e.status === 429 ? 'DEMASIADOS INTENTOS, ESPERA' : MSG_SIN_CONEXION, true);
         }
 
         // Artistas (tabla cancion_artistas): la fila muestra los principales
@@ -123,7 +162,7 @@
                 document.getElementById(id).classList.toggle('hidden', k !== tab);
                 const b = document.getElementById('tab-btn-' + k);
                 const clsActiva = { cat: 'tab-top', rub: 'tab-rub', reg: 'tab-reg', gra: 'tab-gra' };
-                b.className = 'flex-1 min-w-0 py-4 px-1 text-xs truncate text-center rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.45)] ' + (k === tab ? clsActiva[k] : 'bg-[#0f1a36] text-gray-400');
+                b.className = 'flex-1 min-w-0 py-4 px-1 text-[11px] truncate text-center rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.45)] ' + (k === tab ? clsActiva[k] : 'bg-[#0f1a36] text-gray-400');
                 b.setAttribute('aria-selected', k === tab);
             });
             // Al volver al Top se re-igualan las alturas con el ancho actual:
@@ -173,8 +212,8 @@
         // (6) Siguiente sin calificar: usa el orden que ya existe en el backend.
         async function siguienteSinCalificar() {
             try {
-                const res = await fetch(`${API_URL}?orden=sin_calificar&pagina=1`);
-                if (!res.ok) throw new Error('HTTP ' + res.status + ' en GET ' + API_URL + '?orden=sin_calificar&pagina=1');
+                const res = await fetchConTimeout(`${API_URL}?orden=sin_calificar&pagina=1`);
+                if (!res.ok) { await mostrarErrorHttp(res, MSG_SIN_CONEXION); return; }
                 const data = await res.json();
                 if (!data.canciones || !data.canciones.length) { showToast('NO HAY PENDIENTES'); return; }
                 const song = data.canciones[0];
@@ -378,14 +417,14 @@
         async function cargarHistograma() {
             const el = document.getElementById('histograma');
             try {
-                const res = await fetch(`${API_URL}/histograma`);
-                if (!res.ok) throw new Error('HTTP ' + res.status + ' en GET ' + API_URL + '/histograma');
+                const res = await fetchConTimeout(`${API_URL}/histograma`);
+                if (!res.ok) throw errorHttp(res, API_URL + '/histograma');
                 const { histograma } = await res.json();
                 const max = Math.max(1, ...histograma.map(h => h.total));
                 const totalHist = histograma.reduce((a, h) => a + h.total, 0);
                 const colorBarra = {'10-12': '#22d3ee', '12-14': '#22d3ee', '14-16': '#22d3ee', '16-18': 'linear-gradient(90deg,#22d3ee,#8b5cf6)', '18-19': '#d946ef', '19-20': '#22c55e', 'sin_calificar': '#6b7280', 'menos-10': '#22d3ee'};
                 el.innerHTML = histograma.map(h => { const etiqueta = h.rango === 'sin_calificar' ? 'Sin calificar' : h.rango === 'menos-10' ? 'Menos de 10' : h.rango; const pct = totalHist ? Math.round(h.total / totalHist * 100) : 0; return `<button onclick="filtrarRango('${h.rango}')" class="w-full text-left min-h-[44px] flex flex-col justify-center ${h.rango === rangoActivo ? 'rango-activo' : ''}"><div class="flex justify-between gap-2 text-xs"><span class="text-gray-200">${etiqueta}</span><span class="text-gray-400">${h.total} canc. · ${pct}%</span></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 rounded" style="width:${Math.round(h.total / max * 100)}%;background:${colorBarra[h.rango] || '#22d3ee'}"></div></div></button>`; }).join('') || '<p class="text-gray-400 text-xs">Sin datos todavía.</p>';
-            } catch (e) { console.error('[Evaluador] cargarHistograma:', e); showToast(MSG_SIN_CONEXION, true); el.innerHTML = '<p class="text-red-400 text-xs">No se pudo cargar el histograma.</p><button onclick="cargarHistograma()" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button>'; }
+            } catch (e) { console.error('[Evaluador] cargarHistograma:', e); toastLectura(e); el.innerHTML = '<p class="text-red-400 text-xs">No se pudo cargar el histograma.</p><button onclick="cargarHistograma()" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button>'; }
         }
         let rangoFiltro = null; // [min, max] o null = sin filtro
         let catalogoListo = false; // true tras la primera carga con exito (para el aviso de despertar)
@@ -404,8 +443,8 @@
         async function cargarGeneros() {
             const ul = document.getElementById('generos-stats');
             try {
-                const res = await fetch(`${API_URL}/generos`);
-                if (!res.ok) throw new Error('HTTP ' + res.status + ' en GET ' + API_URL + '/generos');
+                const res = await fetchConTimeout(`${API_URL}/generos`);
+                if (!res.ok) throw errorHttp(res, API_URL + '/generos');
                 const { generos } = await res.json();
                 const nombres = MAP_GENEROS;
                 conteoGenero = Object.fromEntries(generos.map(g => [g.genero, g.total])); generosCargados = true; pintarChips();
@@ -418,20 +457,20 @@
                     guardarFiltros(); pintarChips(); cargarCatalogo(1);
                 }
                 ul.innerHTML = generos.map((g, i) => `<li class="${i === 0 ? 'genero-top' : ''}"><div class="flex justify-between gap-2"><span class="text-gray-200">${escapeHtml(nombres[g.genero] || g.genero)}</span><span class="text-gray-400">${g.promedio.toFixed(1)}/20 · ${g.total} canc.</span></div><div class="h-1.5 bg-[#0f1a36] rounded mt-1"><div class="h-1.5 rounded" style="width:${Math.min(100, g.promedio / 20 * 100)}%;background:linear-gradient(90deg,#22d3ee,#ff2ea6,#ff7a18)"></div></div></li>`).join('') || '<li class="text-gray-400">Sin datos todavía.</li>';
-            } catch (e) { console.error('[Evaluador] cargarGeneros:', e); showToast(MSG_SIN_CONEXION, true); ul.innerHTML = '<li class="text-red-400">No se pudo cargar.</li><li><button onclick="cargarGeneros()" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button></li>'; }
+            } catch (e) { console.error('[Evaluador] cargarGeneros:', e); toastLectura(e); ul.innerHTML = '<li class="text-red-400">No se pudo cargar.</li><li><button onclick="cargarGeneros()" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button></li>'; }
         }
 
         async function exportar(formato) {
             try {
-                const res = await fetch(`${API_URL}/exportar`);
-                if (!res.ok) throw new Error('HTTP ' + res.status + ' en GET ' + API_URL + '/exportar');
+                const res = await fetchConTimeout(`${API_URL}/exportar`);
+                if (!res.ok) { await mostrarErrorHttp(res, 'NO SE PUDO EXPORTAR'); return; }
                 const data = await res.json();
                 const canciones = data.canciones || [];
                 let contenido, tipo;
                 if (formato === 'json') { contenido = JSON.stringify(canciones, null, 2); tipo = 'application/json'; }
                 else {
                     const cols = Object.keys(canciones[0] || { id: 0 });
-                    const cel = v => { let s = String(v ?? ''); if (/^[=+\-@|%]/.test(s.trimStart())) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; }; // el trimStart importa: " =2+2" tambien es formula para Excel
+                    const cel = v => { let s = (v && typeof v === 'object') ? JSON.stringify(v) : String(v ?? ''); if (/^[=+\-@|%]/.test(s.trimStart())) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; }; // el trimStart importa: " =2+2" tambien es formula para Excel; el objeto (artistas: [{...}]) va como JSON, no "[object Object]" (ronda 3, oleada 2)
                     contenido = '\ufeff' + [cols.join(','), ...canciones.map(c => cols.map(k => cel(c[k])).join(','))].join('\r\n'); tipo = 'text/csv';
                 }
                 const a = document.createElement('a');
@@ -439,17 +478,19 @@
                 a.download = `canciones-${new Date().toISOString().slice(0, 10)}.${formato}`; a.click();
                 setTimeout(() => URL.revokeObjectURL(a.href), 1000);
                 showToast('RESPALDO DESCARGADO');
-            } catch (e) { console.error('[Evaluador] exportar:', e); showToast('NO SE PUDO EXPORTAR', true); }
+            } catch (e) { console.error('[Evaluador] exportar (GET ' + API_URL + '/exportar):', e); showToast('NO SE PUDO EXPORTAR', true); }
         }
 
         // E9 (auditoría ronda 1): bloqueo POR ACCIÓN, no un flag global
         // compartido: agregar mientras se califica no debe bloquearse entre
-        // sí. Cada acción muestra GUARDANDO… mientras su petición está en curso.
+        // sí. (Ronda 2: el toast GUARDANDO… ya no va aquí: se mostraba
+        // también cuando la acción se rechazaba por validación local sin
+        // haber enviado nada; cada acción lo muestra solo cuando su
+        // petición realmente arranca.)
         const bloqueosAccion = new Set();
         async function conBloqueo(fn, clave = 'accion') {
             if (bloqueosAccion.has(clave)) return;
             bloqueosAccion.add(clave);
-            showToast('GUARDANDO…');
             try { await fn(); } finally { bloqueosAccion.delete(clave); }
         }
         async function irPagina(n) { await cargarCatalogo(n); document.getElementById('section-catalogo').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -460,7 +501,7 @@
         // en localStorage (no son sensibles).
         async function apiFetch(url, opts = {}, reintento = true) {
             let t = '';
-            try { t = sessionStorage.getItem('musica_token') || ''; } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage):', e); }
+            try { t = sessionStorage.getItem('musica_token') || ''; } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage lectura):', e); }
             // E4 (auditoría ronda 1): timeout de 30 s; sin él, un servidor
             // dormido deja la petición colgada sin aviso.
             const ctrl = new AbortController();
@@ -473,15 +514,21 @@
             // seguidos desde la misma IP): no se pide la clave; el aviso
             // DEMASIADOS INTENTOS, ESPERA lo pone mostrarErrorHttp.
             if (res.status === 429) return res;
+            // 401 con token no configurado en el servidor (ronda 3, oleada 2):
+            // pedir la clave es inútil (ningún valor pasaría); se devuelve
+            // tal cual y mostrarErrorHttp avisa CLAVE NO CONFIGURADA.
+            if (res.status === 401 && res.headers && res.headers.get('X-Auth-Error') === 'token_no_configurado') return res;
             if (res.status === 401 && reintento) {
-                const n = prompt('Clave de administrador:');
-                if (n) { try { sessionStorage.setItem('musica_token', n); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage):', e); } return apiFetch(url, opts, false); }
+                // B11 (ronda 4): la clave pegada con un espacio o salto de
+                // línea al final fallaba siempre (401 en bucle): se recorta.
+                const n = (prompt('Clave de administrador:') || '').trim();
+                if (n) { try { sessionStorage.setItem('musica_token', n); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage guardar):', e); } return apiFetch(url, opts, false); }
                 // Cancelado o vacío: no reintentar en bucle; se limpia el
                 // token y el aviso CLAVE INCORRECTA lo muestra mostrarErrorHttp
                 // en el llamador (un solo aviso por fallo).
-                try { sessionStorage.removeItem('musica_token'); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage):', e); }
+                try { sessionStorage.removeItem('musica_token'); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage limpiar tras cancelar):', e); }
             }
-            if (res.status === 401 && !reintento) { try { sessionStorage.removeItem('musica_token'); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage):', e); } }
+            if (res.status === 401 && !reintento) { try { sessionStorage.removeItem('musica_token'); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage limpiar 401):', e); } }
             return res;
         }
 
@@ -490,8 +537,8 @@
         let timerReintentoStats = null; // reintento programado de estadísticas (E7)
         async function cargarEstadisticas() {
             try {
-                const resStats = await fetch(`${API_URL}/stats`);
-                if (!resStats.ok) throw new Error('HTTP ' + resStats.status + ' en GET ' + API_URL + '/stats');
+                const resStats = await fetchConTimeout(`${API_URL}/stats`);
+                if (!resStats.ok) throw errorHttp(resStats, API_URL + '/stats');
                 const data = await resStats.json();
                 document.getElementById('stat-total').innerText = data.total; 
                 document.getElementById('stat-promedio').innerText = data.promedio.toFixed(2);
@@ -507,7 +554,7 @@
                 if (timerReintentoStats) { clearTimeout(timerReintentoStats); timerReintentoStats = null; }
             } catch(e) {
                 console.error('[Evaluador] cargarEstadisticas:', e);
-                showToast(MSG_SIN_CONEXION, true);
+                toastLectura(e);
                 // E7: reintento programado (15 s) mientras no haya datos:
                 // si no, los cuadros se quedan en "—" para siempre.
                 if (!timerReintentoStats) timerReintentoStats = setTimeout(() => { timerReintentoStats = null; if (!statsListas) cargarEstadisticas(); }, 15000);
@@ -536,6 +583,18 @@
             if (max > 0) filas.forEach(f => f.style.minHeight = max + 'px');
         }
 
+        // Pantalla de carga (ronda 3): se oculta SOLO al terminar
+        // cargarCatalogo, con exito o con error, para que la app nunca
+        // quede tapada por el splash. Idempotente: las cargas siguientes
+        // (paginacion, filtros) la vuelven a llamar sin efecto. No se
+        // oculta en el return por respuesta obsoleta ni antes de la
+        // recursion de pagina: en esos casos otra carga sigue en curso
+        // y es ella la que la oculta al terminar.
+        function ocultarSplash() {
+            const s = document.getElementById('pantalla-carga');
+            if (s) s.classList.add('oculta');
+        }
+
         async function cargarCatalogo(pagina = 1) {
             try {
                 paginaActualGlobal = pagina;
@@ -556,7 +615,7 @@
                 try {
                     res = await fetch(urlCatalogo, { signal: ctrlCatalogo.signal });
                 } finally { clearTimeout(temporizadorCatalogo); }
-                if (!res.ok) throw new Error('HTTP ' + res.status + ' en GET ' + urlCatalogo);
+                if (!res.ok) throw errorHttp(res, urlCatalogo);
                 const data = await res.json();
                 if (!statsListas) cargarEstadisticas();
 
@@ -579,8 +638,8 @@
                     const valor = metrica ? c[orden] : c.calificacion_final;
                     let p = c.calificacion_final > 0 ? (valor ?? 0).toFixed(2) : "N/A"; // ?? 0: si una metrica es null con nota > 0 (dato inconsistente), antes rompia todo el catalogo
 
-                    // COLORES (cerrados por el usuario): Top 10 dorado, GOD >19 verde,
-                    // >18 fuchsia, >17.8 violeta, resto cian. Degradado 0-90 con
+                    // COLORES (cerrados por el usuario): Top 10 dorado, GOD ≥19 verde,
+                    // ≥18 fuchsia, ≥17.8 violeta, resto cian. Degradado 0-90 con
                     // curva suave: cada ventana empieza en el color puro de la
                     // categoria (0% del siguiente) y sube hasta 90% en el umbral,
                     // con smoothstep (despacio al principio y al final, mas
@@ -605,7 +664,7 @@
                     if (nota <= 0) colorBase = '#6b7280'; // P5: sin calificar, gris también en insignia y puntos
                     if (nota >= 19) { colorBase = '#22c55e'; glow = 'rgba(34,197,94,0.55)'; }
                     else if (nota >= 18) { colorBase = '#d946ef'; glow = 'rgba(217,70,239,0.5)'; }
-                    else if (nota > 17.8) { colorBase = '#8b5cf6'; glow = 'rgba(139,92,246,0.45)'; }
+                    else if (nota >= 17.8) { colorBase = '#8b5cf6'; glow = 'rgba(139,92,246,0.45)'; }
                     else if (nota > 0) { const g = grad('#22d3ee', '#8b5cf6', 17.8, 0.3); if (g) colorBase = g; } // 17.5-17.8: cian -> violeta
                     { const g = grad('#d946ef', '#22c55e', 19, 0.5); if (g) colorBase = g; } // 18.5-19: fuchsia -> verde
                     { const g = grad('#8b5cf6', '#d946ef', 18); if (g) colorBase = g; } // 17.8-18: violeta -> fuchsia
@@ -699,7 +758,8 @@
                 }
                 animacionEntradaLista = true;
                 igualarFilas();
-            } catch (e) { console.error('[Evaluador] cargarCatalogo:', e); document.getElementById('barra-carga').classList.add('hidden'); document.getElementById('lista_canciones').innerHTML = '<p class="text-red-400 text-xs p-4 text-center">> No se pudo cargar el catálogo. Revisa tu conexión y vuelve a intentarlo.</p><div class="text-center"><button onclick="cargarCatalogo(1)" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button></div>'; showToast(MSG_SIN_CONEXION, true); }
+                ocultarSplash();
+            } catch (e) { console.error('[Evaluador] cargarCatalogo:', e); document.getElementById('barra-carga').classList.add('hidden'); document.getElementById('lista_canciones').innerHTML = '<p class="text-red-400 text-xs p-4 text-center">> No se pudo cargar el catálogo. Revisa tu conexión y vuelve a intentarlo.</p><div class="text-center"><button onclick="cargarCatalogo(1)" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button></div>'; toastLectura(e); ocultarSplash(); }
         }
 
         // Quita espacios de los extremos y colapsa los dobles de en medio.
@@ -716,8 +776,8 @@
             if (artistasCompletos || cargandoArtistas) return;
             cargandoArtistas = true;
             try {
-                const res = await fetch(API_ARTISTAS);
-                if (!res.ok) throw new Error('HTTP ' + res.status + ' en GET ' + API_ARTISTAS);
+                const res = await fetchConTimeout(API_ARTISTAS);
+                if (!res.ok) throw errorHttp(res, API_ARTISTAS);
                 const { artistas } = await res.json();
                 // E17: completo solo si la lista llegó con datos.
                 if (!Array.isArray(artistas) || !artistas.length) throw new Error('lista de artistas vacía en GET ' + API_ARTISTAS);
@@ -726,15 +786,15 @@
                 artistasCompletos = true;
             } catch (e) {
                 try {
-                    const res = await fetch(`${API_URL}/exportar`);
+                    const res = await fetchConTimeout(`${API_URL}/exportar`);
                     if (!res.ok) { console.warn('[Evaluador] cargarArtistasCompletos: respaldo sin artistas (HTTP ' + res.status + ' en GET ' + API_URL + '/exportar)', e); return; }
                     const { canciones } = await res.json();
                     const lista = [...new Set((canciones || []).map(c => c.artista))].filter(Boolean);
-                    if (!lista.length) { console.warn('[Evaluador] cargarArtistasCompletos: respaldo sin artistas', e); return; }
+                    if (!lista.length) { console.warn('[Evaluador] cargarArtistasCompletos: respaldo sin artistas (lista vacia en GET ' + API_URL + '/exportar)', e); return; }
                     const dl = document.getElementById('lista-artistas');
                     if (dl) dl.innerHTML = lista.map(a => `<option value="${escapeHtml(a)}">`).join('');
                     artistasCompletos = true;
-                } catch (e2) { console.warn('[Evaluador] cargarArtistasCompletos: ambas fuentes fallaron (sin conexion: se queda la lista de la pagina actual)', e, e2); }
+                } catch (e2) { console.warn('[Evaluador] cargarArtistasCompletos: ambas fuentes fallaron (GET ' + API_ARTISTAS + ' + GET ' + API_URL + '/exportar; sin conexion: se queda la lista de la pagina actual)', e, e2); }
             }
             finally { cargandoArtistas = false; }
         }
@@ -769,12 +829,12 @@
                     for (let p = 1; p <= maxPaginas; p++) {
                         if (!sigueVigente()) return null;
                         let r;
-                        try { r = await fetch(`${API_URL}?buscar=${encodeURIComponent(termino)}&pagina=${p}`); }
-                        catch (e) { return canciones; }
+                        try { r = await fetchConTimeout(`${API_URL}?buscar=${encodeURIComponent(termino)}&pagina=${p}`); }
+                        catch (e) { console.warn('[Evaluador] revisarDuplicado (buscarPaginas): sin conexion en GET ' + API_URL + '?buscar=' + encodeURIComponent(termino) + '&pagina=' + p, e); return canciones; }
                         if (!r.ok) return canciones;
                         let d;
                         try { d = await r.json(); }
-                        catch (e) { console.warn('[Evaluador] revisarDuplicado (buscarPaginas): JSON inválido en GET ' + API_URL + '?buscar=' + termino + '&pagina=' + p, e); return canciones; }
+                        catch (e) { console.warn('[Evaluador] revisarDuplicado (buscarPaginas): JSON inválido en GET ' + API_URL + '?buscar=' + encodeURIComponent(termino) + '&pagina=' + p, e); return canciones; }
                         canciones.push(...(d.canciones || []));
                         if (esDuplicado && canciones.some(esDuplicado)) break;
                         if (p >= (d.total_paginas || 1)) break;
@@ -849,6 +909,7 @@
 
             if(!titulo || !artista) { showToast("LLENA TÍTULO Y ARTISTA", true); return; }
             if(!genero) { showToast("ELIGE UN GÉNERO", true); return; }
+            showToast('GUARDANDO…');
 
             const btn = document.getElementById('btn-agregar'), btnSeguir = document.getElementById('btn-agregar-seguir');
             btn.disabled = true; btnSeguir.disabled = true;
@@ -866,7 +927,7 @@
                     // E10: si el JSON no trae un id numérico, la operación
                     // se trata como éxito con recarga del catálogo.
                     let data = null;
-                    try { data = await res.json(); } catch (e) { console.warn('[Evaluador] agregarCancion (JSON):', e); }
+                    try { data = await res.json(); } catch (e) { console.warn('[Evaluador] agregarCancion (JSON en POST ' + API_URL + '):', e); }
                     document.getElementById('titulo').value = '';
                     document.getElementById('artista').value = '';
                     document.getElementById('reg-genero').value = ''; // la 3: NO se conserva el genero
@@ -901,25 +962,29 @@
         async function calificarCancion() {
             const id = parseInt(document.getElementById('id_cancion').value);
             if(!id || id <= 0) { showToast("SELECCIONA UNA CANCIÓN PRIMERO", true); return; }
+            showToast('GUARDANDO…');
 
             // E9: el botón se deshabilita durante su petición, como ya se
             // hace con los botones de agregar.
             const btnCalificar = document.getElementById('btn-calificar');
             if (btnCalificar) btnCalificar.disabled = true;
 
-            const body = {
-                ritmo: parseFloat(document.getElementById('ritmo').value), 
-                letras: parseFloat(document.getElementById('letras').value),
-                coro: parseFloat(document.getElementById('coro').value), 
-                importancia: parseFloat(document.getElementById('importancia').value), 
-                arte_visual: document.getElementById('arte_visual').checked ? 1.0 : 0.0, 
-                antiguedad: document.getElementById('antiguedad').checked,
-                nostalgia: document.getElementById('nostalgia').checked, 
-                complejidad: document.getElementById('complejidad').checked,
-                descubrimiento_terceros: document.getElementById('descubrimiento_unico').checked
-            };
-            
             try {
+                // El cuerpo se construye DENTRO del try (ronda 4): antes
+                // estaba entre el disabled y el try, y si leer un slider
+                // lanzaba, el botón quedaba deshabilitado para siempre (el
+                // finally no corría) sin ningún aviso.
+                const body = {
+                    ritmo: parseFloat(document.getElementById('ritmo').value),
+                    letras: parseFloat(document.getElementById('letras').value),
+                    coro: parseFloat(document.getElementById('coro').value),
+                    importancia: parseFloat(document.getElementById('importancia').value),
+                    arte_visual: document.getElementById('arte_visual').checked ? 1.0 : 0.0,
+                    antiguedad: document.getElementById('antiguedad').checked,
+                    nostalgia: document.getElementById('nostalgia').checked,
+                    complejidad: document.getElementById('complejidad').checked,
+                    descubrimiento_terceros: document.getElementById('descubrimiento_unico').checked
+                };
                 const res = await apiFetch(`${API_URL}/${id}/calificar`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
                 if(res.ok) { 
                     showToast("EVALUACIÓN GUARDADA"); statsListas = false; cargarGeneros(); cargarHistograma(); 
@@ -1073,7 +1138,7 @@
                     try {
                         const res = await apiFetch(`${API_URL}/${id}`, { method: 'DELETE' });
                         if (res.ok) {
-                            showToast("CANCIÓN ELIMINADA", true); cargarGeneros(); cargarHistograma(); statsListas = false;
+                            showToast("CANCIÓN ELIMINADA"); cargarGeneros(); cargarHistograma(); statsListas = false;
                             if(idSeleccionadoGlobal === id) limpiarFormulario();
                             else cargarCatalogo(paginaActualGlobal);
                             return true;

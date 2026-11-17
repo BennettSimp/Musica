@@ -17,12 +17,26 @@
 // prueban como espejos documentados de main.cpp: el harness no ejecuta
 // el backend; valida que las reglas documentadas se cumplan en el espejo.
 // Secciones: 1 fórmula, 2 desempate, 3 colores 0–90%, 4 histograma,
-// 5 gráficas nuevas, 6 auditoría final, 7 color de fila, 8 auditoría G,
+// 5 gráficas nuevas, 5b histograma SQL real (ronda 2), 5c anclajes de
+// texto ronda 2 (DESEMPATE, color de fila, filtrarRango, sw.js),
+// 6 auditoría final, 7 color de fila, 8 auditoría G,
 // 9 auditoría G ronda 2, 10 artistas, 11 P4 fórmula límites, 12 P5
 // bordes de rampa, 13 P6 cadena de desempate, 14 P7 POST/PUT /info,
 // 15 P8 artistas, 16 P9 catálogo vacío, 17 P11 sw.js manual,
-// 18 G-L1 secretos en logs, 19 E2/E3 calificar, 20 DESEMPATE_ASC,
-// 21 /api/salud JSON.
+// 18 G-L1 secretos en logs, 18b R2 logs (sanitizar, pool, id), 19 E2/E3 calificar, 20 DESEMPATE_ASC,
+// 21 /api/salud JSON, 22 R2-O2 control de errores, 23 ronda 3 oleada 1
+// (GOD ≥19, mostrarErrorHttp, claveCancion, rate limits, cuerpo 64KB,
+// timeouts, token sessionStorage, validación POST/PUT, órdenes, búsqueda
+// UTF-8, salud/db, pool, CORS, export CSV, conBloqueo, stats en vivo),
+// 24 ronda 3 oleadas 2+3 (401 con distinción, DB caída → 503,
+// total_paginas, CSV objetos, logs: contraseña con ':', decodificada
+// corta, nivel Warning de Crow).
+// 25 ronda 4 oleada 1 (splash: los 8 tests propuestos en la ronda 3;
+// colorFila REAL extraído de app.js (M1); anclas numéricas de backend
+// extraídas de main.cpp (M3); casos borde: catálogo 678, UTF-8, título
+// 200 (B1 bytes vs caracteres), .xx5 en ambos sentidos, catálogo vacío
+// e histograma con bins vacíos; espejos corregidos: paginaDe sin max y
+// statsDe con mediana 0).
 const fs = require('fs');
 const BASE = process.env.HOME + '/workspace/musica-review-preparado/';
 let fallos = 0, pasadas = 0, saltadas = 0;
@@ -92,7 +106,7 @@ const colorFila = (nota, rank) => {
   if (nota <= 0) colorBase = '#6b7280';
   if (nota >= 19) colorBase = '#22c55e';
   else if (nota >= 18) colorBase = '#d946ef';
-  else if (nota > 17.8) colorBase = '#8b5cf6';
+  else if (nota >= 17.8) colorBase = '#8b5cf6';
   else if (nota > 0) { const g = grad('#22d3ee', '#8b5cf6', 17.8, 0.3); if (g) colorBase = g; }
   { const g = grad('#d946ef', '#22c55e', 19, 0.5); if (g) colorBase = g; }
   { const g = grad('#8b5cf6', '#d946ef', 18); if (g) colorBase = g; }
@@ -290,6 +304,64 @@ if (tieneDatos) {
     `[datos reales] género top: ${avgs[0][0]} ${avgs[0][2]} (${avgs[0][1]} canc.), 2º ${avgs[1][0]} ${avgs[1][2]}, peor ${avgs[avgs.length - 1][0]} ${avgs[avgs.length - 1][2]}`);
 } else skip('porcentajes / género top con datos reales (sin public/datos-reales.json)');
 
+// ---------- 5b. Ronda 2 — la consulta SQL real del histograma (fix 2026-11-16) ----------
+// Hasta la ronda 1 el harness solo comprobaba ESPEJOS del histograma
+// (binSql y ordenCase): si alguien revertía el fix de main.cpp (volver a
+// usar el alias 'rango' dentro del CASE del ORDER BY con GROUP BY),
+// todos los tests seguirían en verde y el endpoint volvería a dar 500 en
+// vivo ("column \"rango\" does not exist"). Estas pruebas leen la consulta
+// REAL de main.cpp y fijan la forma que Postgres acepta: GROUP BY dentro
+// de la subconsulta y ORDER BY fuera, donde 'rango' ya es columna real.
+const histBlock = mainCppSrc.slice(mainCppSrc.indexOf('CROW_ROUTE(app, "/api/canciones/histograma")'), mainCppSrc.indexOf('respuestaErrorDb("GET /api/canciones/histograma"'));
+const histSql = histBlock.slice(histBlock.indexOf('"SELECT rango, total FROM ("'), histBlock.indexOf('END");')); // desde el primer literal de la consulta (el comentario previo a N.exec( menciona ORDER BY y contaminaría la comprobación)
+const histInner = histSql.slice(0, histSql.indexOf('FROM canciones GROUP BY 1) s'));
+const histOuter = histSql.slice(histSql.indexOf('FROM canciones GROUP BY 1) s'));
+ok(histSql.length > 400 && histSql.includes('SELECT rango, total FROM (') && histSql.includes('FROM canciones GROUP BY 1) s') && histBlock.includes('res["histograma"]'),
+  'histograma SQL: la consulta va en subconsulta (SELECT rango, total FROM (... GROUP BY 1) s) y responde res["histograma"]');
+ok(histInner.includes('SELECT CASE') && !histInner.includes('ORDER BY'),
+  'histograma SQL: dentro de la subconsulta (con GROUP BY) NO hay ORDER BY — el alias rango nunca se usa ahí');
+ok(histOuter.includes("ORDER BY CASE WHEN rango = 'sin_calificar' THEN 99 WHEN rango = 'menos-10' THEN 0")
+  && histOuter.includes("CAST(SUBSTRING(rango FROM '^[0-9]+') AS INT)"),
+  'histograma SQL: el ORDER BY exterior usa rango como columna real (sin_calificar último=99, menos-10 primero=0, resto por número inicial)');
+ok(['sin_calificar', 'menos-10', '10-12', '12-14', '14-16', '16-18', '18-19', '19-20'].every(r => histInner.includes("'" + r + "'")),
+  'histograma SQL: el CASE interior produce los 8 rangos (sin_calificar, menos-10, 10-12, 12-14, 14-16, 16-18, 18-19, 19-20)');
+ok(histInner.includes('COALESCE(calificacion_final,0) = 0') && histInner.includes('calificacion_final > 0 AND calificacion_final < 10')
+  && ['< 12', '< 14', '< 16', '< 18', '< 19'].every(t => histInner.includes('calificacion_final ' + t)),
+  'histograma SQL: bordes del CASE (0 = sin calificar; <10, <12, <14, <16, <18, <19) — mismos que binSql');
+// Sin andamiaje de bins: la consulta solo devuelve los rangos CON
+// canciones (GROUP BY sin generate_series ni VALUES). Con el catálogo
+// vacío devuelve 0 filas, no 8 filas en 0 — el P9 ("los 8 rangos en 0")
+// describe el modelo del frontend, no el endpoint; el frontend lo cubre
+// con el fallback 'Sin datos todavía.' (app.js).
+ok(!/generate_series|VALUES\s*\(/i.test(histSql) && appJsSrc.includes('Sin datos todavía.'),
+  'histograma SQL: sin andamiaje de bins — catálogo vacío → 0 filas; el frontend muestra "Sin datos todavía."');
+// ---------- 5c. Ronda 2 — anclajes de texto: DESEMPATE, color de fila, filtrarRango, sw.js ----------
+// La sección 20 solo comprobaba 'id DESC'/'id ASC' en DESEMPATE; el orden
+// completo de criterios vivía solo en el espejo `cmp`. Si main.cpp
+// permutaba dos criterios, el harness no lo notaba. Lo mismo pasaba con
+// colorFila (espejo de app.js:599-624) y con `filtro` (espejo de
+// filtrarRango): estas pruebas anclan el texto real al orden cerrado.
+const enOrden = (txt, partes) => { let p = -1; for (const s of partes) { const i = txt.indexOf(s, p + 1); if (i === -1) return false; p = i; } return true; };
+const dAsc = mainCppSrc.slice(mainCppSrc.indexOf('static const std::string DESEMPATE_ASC'), mainCppSrc.indexOf('static const std::string DESEMPATE ='));
+const dDesc = mainCppSrc.slice(mainCppSrc.indexOf('static const std::string DESEMPATE ='), mainCppSrc.indexOf('// Una sola funcion'));
+ok(enOrden(dDesc, ['COALESCE(ritmo,0)*0.35 + COALESCE(letras,0)*0.25 + COALESCE(coro,0)*0.40) DESC', 'COALESCE(importancia,0) DESC', 'SUMA_BONOS', 'COALESCE(descubrimiento_terceros,false) DESC', 'COALESCE(coro,0) DESC', 'COALESCE(ritmo,0) DESC', 'COALESCE(letras,0) DESC', 'id ASC']),
+  'DESEMPATE main.cpp: orden cerrado base → Importancia → bonos → Descubrimiento → Coro → Ritmo → Letra → id ASC');
+ok(enOrden(dAsc, ['COALESCE(ritmo,0)*0.35 + COALESCE(letras,0)*0.25 + COALESCE(coro,0)*0.40) ASC', 'COALESCE(importancia,0) ASC', 'SUMA_BONOS', 'COALESCE(descubrimiento_terceros,false) ASC', 'COALESCE(coro,0) ASC', 'COALESCE(ritmo,0) ASC', 'COALESCE(letras,0) ASC', 'id DESC']),
+  'DESEMPATE_ASC main.cpp: espejo exacto (mismos criterios ASC, id DESC)');
+ok(appJsSrc.includes("if (nota >= 19) { colorBase = '#22c55e'") && appJsSrc.includes("else if (nota >= 18) { colorBase = '#d946ef'") && appJsSrc.includes("else if (nota >= 17.8) { colorBase = '#8b5cf6'"),
+  'color fila app.js: umbrales de categoría (≥19 verde, ≥18 fuchsia, ≥17.8 violeta, resto cian)');
+ok(appJsSrc.includes("grad('#22d3ee', '#8b5cf6', 17.8, 0.3)") && appJsSrc.includes("grad('#d946ef', '#22c55e', 19, 0.5)") && appJsSrc.includes("grad('#8b5cf6', '#d946ef', 18)"),
+  'color fila app.js: ventanas de rampa (17.5–17.8 ancho 0.3; 18.5–19 ancho 0.5; 17.8–18 ancho 0.2)');
+ok(appJsSrc.includes("if (nota > 0 && rank > 10 && rank <= 20) { colorBase = mezcla(0.9 * suave((20 - rank) / 9), colorBase, '#facc15')") && appJsSrc.includes("if (nota > 0 && rank <= 10) { colorBase = '#facc15'"),
+  'color fila app.js: dorado solo Top 10 global con nota > 0; puestos 11–20 mezclan 0–90% hacia dorado');
+ok(appJsSrc.includes("if (rango === 'sin_calificar') rangoFiltro = [0, 0];") && appJsSrc.includes("else if (rango === 'menos-10') rangoFiltro = [0.01, 9.99];") && appJsSrc.includes('rangoFiltro = [a, b >= 20 ? 20 : b - 0.01];'),
+  'filtrarRango app.js: rangos reales ([0,0], [0.01,9.99], [a,b-0.01] con 20 entero) — mismos que el espejo `filtro`');
+ok(['10-12', '12-14', '14-16', '16-18', '18-19', '19-20', 'sin_calificar', 'menos-10'].every(r => appJsSrc.includes("'" + r + "':")),
+  'colorBarra del histograma (app.js) cubre los 8 rangos');
+const swJsR2 = fs.readFileSync(BASE + 'public/sw.js', 'utf8');
+ok(swJsR2.includes("'/index.html'") && swJsR2.includes("'/app.js'") && swJsR2.includes("'/'"),
+  'sw.js precachea /, /index.html y /app.js (además del manifiesto e iconos)');
+
 // ---------- 6. Auditoría final ----------
 // grad(): rampa 0-90% con smoothstep. Al entrar en la ventana (umbral -
 // ancho exacto) mezcla 0% (color puro, sin salto); a mitad de ventana
@@ -333,9 +405,10 @@ ok(colorFila(19.6, 1) === '#facc15', 'color fila: 19.60 puesto 1 = dorado pleno'
 ok(colorFila(18.9, 3) === '#facc15', 'color fila: 18.9 puesto 3 = dorado pleno (dorado SOLO por puesto, sin exigir ≥19)');
 ok(colorFila(18.9, 25) === mezcla(0.8064, '#d946ef', '#22c55e'), 'color fila: 18.9 puesto 25 = fuchsia→verde al 80.64% (rampa 0-90% con suave: t=0.8)');
 // En 17.80 exacto empieza la ventana del umbral 18 (0% violeta→fuchsia):
-// la ventana de 17.8 ya terminó (nota >= umbral) y 17.8 no es > 17.8.
-// Ya no hay salto: en 17.79 la fila es ~90% violeta y en 17.80 es
-// violeta puro (el 10% de cian que quedaba se va, sin brinco a 50%).
+// el umbral violeta es >= 17.8 (decisión de Nova 2026-11-16), así que
+// 17.80 entra en la rama violeta directamente. Ya no hay salto: en
+// 17.79 la fila es ~90% violeta y en 17.80 es violeta puro (el 10% de
+// cian que quedaba se va, sin brinco a 50%).
 ok(colorFila(17.8, 100) === mezcla(0, '#8b5cf6', '#d946ef'), 'color fila: 17.80 puesto 100 = violeta puro (inicio de la ventana del 18, 0%)');
 ok(colorFila(17.79, 100) === mezcla(0.8970666666666667, '#22d3ee', '#8b5cf6'), 'color fila: 17.79 puesto 100 = cian→violeta al 89.71% (rampa 0-90% con suave: t=0.9667)');
 ok(colorFila(10.05, 677) === '#22d3ee', 'color fila: 10.05 puesto 677 = cian pleno');
@@ -420,7 +493,7 @@ ok(appJs.includes("if (!listaEl || !listaEl.offsetParent) return;"), 'igualarFil
 ok(appJs.includes("if (tab === 'cat') igualarFilas();"), "switchTab re-iguala al volver a la pestaña Top");
 ok(appJs.includes('buscarPaginas') && appJs.includes('sigueVigente'), 'revisarDuplicado recorre páginas y descarta resultados obsoletos');
 ok(appJs.includes("song.genero + ' (actual)'"), 'modal editar incluye el género actual heredado como opción');
-ok(mainCpp.includes('SELECT genero, etiqueta_especial FROM canciones WHERE id = $1') && mainCpp.includes('genero != genero_actual'), 'PUT /info acepta mantener el género actual (heredado) de la canción (la consulta ahora trae también etiqueta_especial, E13/S12 oleada 1)');
+ok(mainCpp.includes('SELECT genero, etiqueta_especial, instrumental, banda_sonora FROM canciones WHERE id = $1') && mainCpp.includes('genero != genero_actual'), 'PUT /info acepta mantener el género actual (heredado) de la canción (la consulta trae también etiqueta_especial, instrumental y banda_sonora, E13/S12 oleada 1)');
 ok(mainCpp.includes('if (!enLista(etiqueta, ETIQUETAS_VALIDAS))'), 'PUT /info sigue validando el tipo con la lista nueva');
 // 8e. Fondo en <html> (sin background-attachment: fixed en el CSS real;
 // el comentario que lo menciona no cuenta).
@@ -620,7 +693,7 @@ ok(mainCpp.includes('leerArtistasJson') && mainCpp.includes('insertarArtistasCan
   'main.cpp: POST/PUT leen artistas[], los guardan y PUT reemplaza las filas');
 ok(appJs.includes('function textoArtistas') && appJs.includes('function parsearListaArtistas') && appJs.includes('function construirArtistas'),
   'app.js: helpers textoArtistas / parsearListaArtistas / construirArtistas');
-ok(appJs.includes('API_ARTISTAS') && appJs.includes("fetch(API_ARTISTAS)"),
+ok(appJs.includes('API_ARTISTAS') && appJs.includes("fetchConTimeout(API_ARTISTAS)"),
   'app.js: autocompletado con /api/artistas (con respaldo al export)');
 ok(appJs.includes("getElementById('reg-invitados')") && appJs.includes("getElementById('reg-productor')") && appJs.includes("getElementById('mod-7')") && appJs.includes("getElementById('mod-8')"),
   'app.js: Agregar y Editar leen invitados y productor');
@@ -782,8 +855,13 @@ ok(contRed['RedOne'].canciones === 0 && contRed['RedOne'].principales === 0 && c
 // validan las expresiones y los espejos documentados.
 // Stats con 0 canciones: main.cpp usa COALESCE(..., 0) en todo.
 const statsDe = canciones => {
-  const cal = canciones.filter(c => (c.calificacion_final ?? 0) > 0).map(c => c.calificacion_final);
-  return { total: canciones.length, promedio: cal.length ? cal.reduce((a, b) => a + b, 0) / cal.length : 0, obras_maestras: canciones.filter(c => (c.calificacion_final ?? 0) >= 19).length, sin_calificar: canciones.filter(c => (c.calificacion_final ?? 0) === 0).length, mediana: 0, minimo: cal.length ? Math.min(...cal) : 0, maximo: cal.length ? Math.max(...cal) : 0 };
+  const cal = canciones.filter(c => (c.calificacion_final ?? 0) > 0).map(c => c.calificacion_final).sort((a, b) => a - b);
+  // Ronda 4: la mediana era 0 hardcodeada (M2 de la ronda 3, que solo se
+  // corrigió en el test 23a, no en este espejo). Ahora es la mediana real
+  // (PERCENTILE_CONT 0.5: valor central con n impar, media de los dos
+  // centrales con n par).
+  const mediana = cal.length === 0 ? 0 : cal.length % 2 === 1 ? cal[(cal.length - 1) / 2] : (cal[cal.length / 2 - 1] + cal[cal.length / 2]) / 2;
+  return { total: canciones.length, promedio: cal.length ? cal.reduce((a, b) => a + b, 0) / cal.length : 0, obras_maestras: canciones.filter(c => (c.calificacion_final ?? 0) >= 19).length, sin_calificar: canciones.filter(c => (c.calificacion_final ?? 0) === 0).length, mediana, minimo: cal.length ? Math.min(...cal) : 0, maximo: cal.length ? Math.max(...cal) : 0 };
 };
 ok(JSON.stringify(statsDe([])) === JSON.stringify({ total: 0, promedio: 0, obras_maestras: 0, sin_calificar: 0, mediana: 0, minimo: 0, maximo: 0 }),
   'P9 [invariante] stats con catálogo vacío: todo 0 (COALESCE en main.cpp, sin NaN ni null)');
@@ -801,7 +879,10 @@ ok(!FIX.some(c => coincideBusqueda(c, 'zzz-no-existe')), 'P9 [invariante] búsqu
 // total_paginas = (total + 49) / 50; offset = (pagina-1)*50).
 const paginaDe = (pedida, total, lista) => {
   const pagina = Math.min(100000, Math.max(1, pedida));
-  const totalPaginas = Math.floor((total + 49) / 50);
+  // Ronda 4: el backend devuelve std::max(1, ...) desde la ronda 3
+  // (oleada 2: catálogo vacío → 1, no 0); este espejo usaba la fórmula
+  // vieja sin max y daba 0 con total 0. Corregido aquí.
+  const totalPaginas = Math.max(1, Math.floor((total + 49) / 50));
   return { pagina_actual: pagina, total_paginas: totalPaginas, canciones: lista.slice((pagina - 1) * 50, pagina * 50) };
 };
 const pag99 = paginaDe(99, 677, C);
@@ -845,15 +926,15 @@ ok(swJs.includes('if (res.ok)') && swJs.indexOf('if (res.ok)') < swJs.indexOf('.
 // [DATABASE_URL] y trunca a 500; los logs nunca reciben el token.
 // Se comprueba por texto: (a) ninguna línea de log (cerr/cout/log*) lleva
 // el valor del token, el getenv de ADMIN_TOKEN o la variable con la URL;
-// (b) los 2 getenv("ADMIN_TOKEN") son solo comprobaciones, no logs;
+// (b) los 3 getenv("ADMIN_TOKEN") son solo comprobaciones o guardar para sanitizar, no logs;
 // (c) las 4 funciones de log pasan por sanitizarLog; (d) en app.js
 // ningún console.* lleva el token ni la cabecera X-Admin-Token.
 const lineasCpp = mainCpp.split('\n');
 const logConSecretoCpp = lineasCpp.filter(l => /cerr|cout/.test(l) && (/<<\s*token\b/.test(l) || /getenv\("ADMIN_TOKEN"\)/.test(l) || /g_databaseUrl/.test(l)));
 ok(logConSecretoCpp.length === 0, `G-L1 main.cpp: ningún cerr/cout imprime el token, getenv("ADMIN_TOKEN") ni g_databaseUrl (${logConSecretoCpp.length} líneas sospechosas)`);
 const usosGetenvToken = lineasCpp.filter(l => l.includes('getenv("ADMIN_TOKEN")'));
-ok(usosGetenvToken.length === 2 && usosGetenvToken.every(l => !/cerr|cout|log(Error|Info|Rechazo|Auth)/.test(l)),
-  `G-L1 main.cpp: getenv("ADMIN_TOKEN") aparece ${usosGetenvToken.length} veces, solo en comprobaciones (tokenConfigurado/autorizado), nunca en un log`);
+ok(usosGetenvToken.length === 3 && usosGetenvToken.every(l => !/cerr|cout|log(Error|Info|Rechazo|Auth)/.test(l)),
+  `G-L1 main.cpp: getenv("ADMIN_TOKEN") aparece ${usosGetenvToken.length} veces, solo en comprobaciones o para sanitizar (tokenConfigurado/autorizado/main), nunca en un log`);
 ok(mainCpp.includes('static std::string sanitizarLog') && (mainCpp.match(/sanitizarLog\(/g) || []).length >= 5,
   'G-L1 main.cpp: sanitizarLog existe y se usa en logError/logInfo/logRechazo/logAuth (la URL se sustituye por [DATABASE_URL])');
 const llamadasConsola = [];
@@ -863,6 +944,28 @@ for (const l of appJs.split('\n')) {
 }
 const consolaConSecreto = llamadasConsola.filter(s => /musica_token|X-Admin-Token/.test(s));
 ok(consolaConSecreto.length === 0, `G-L1 app.js: ningún console.* lleva el token ni la cabecera X-Admin-Token (${consolaConSecreto.length} llamadas sospechosas)`);
+
+// ---------- 18b. Ronda 2 (logs): sanitizar cubre contraseña y token; pool con causa; error DB con id ----------
+// (a) sanitizarLog tapa, además de la URL completa, la contraseña suelta
+// (URI y decodificada: libpq puede mostrarla fuera de la URL) y el
+// ADMIN_TOKEN; (b) main() extrae la contraseña y guarda el token solo
+// para sanitizar; (c) el pool registra la causa del fallo al recrear;
+// (d) respuestaErrorDb registra el id en las 3 rutas con id; (e) el aviso
+// de JSON inválido en agregar incluye el endpoint.
+ok(mainCpp.includes('reemplazarTodo(o, g_dbPassword, "[SECRETO]")') && mainCpp.includes('reemplazarTodo(o, g_dbPasswordDecodificada, "[SECRETO]")') && mainCpp.includes('reemplazarTodo(o, g_adminToken, "[SECRETO]")'),
+  'R2-LOG sanitizarLog tapa también la contraseña suelta (URI y decodificada) y el ADMIN_TOKEN, además de la URL completa');
+// Ronda 3, oleada LOGS: la contraseña decodificada ya no se guarda en
+// una línea (g_dbPasswordDecodificada = decodificarPorciento(claveDb)),
+// sino en dos pasos con guarda de longitud (decod.size() >= 4), porque
+// tapar una clave decodificada corta destrozaba texto normal del log.
+ok(mainCpp.includes('extraerPasswordUrl(cadena_conexion)') && mainCpp.includes('g_adminToken = tokAdmin') && mainCpp.includes('decodificarPorciento(claveDb)') && mainCpp.includes('g_dbPasswordDecodificada = decod'),
+  'R2-LOG main() extrae la contraseña de DATABASE_URL y guarda el ADMIN_TOKEN solo para sanitizar (nunca se imprime)');
+ok(mainCpp.includes('Recreando conexion tras fallo al validar o abrir: " + motivo') && mainCpp.includes('motivo = e.what()'),
+  'R2-LOG el pool registra la causa del fallo al recrear la conexión (no solo que se recrea)');
+ok(mainCpp.includes('respuestaErrorDb(const std::string& donde, const std::exception& e, int id = -1)') && mainCpp.includes('respuestaErrorDb("PUT /api/canciones/<id>/calificar", e, id)') && mainCpp.includes('respuestaErrorDb("PUT /api/canciones/<id>/info", e, id)') && mainCpp.includes('respuestaErrorDb("DELETE /api/canciones/<id>", e, id)'),
+  'R2-LOG respuestaErrorDb registra el id y las 3 rutas con id lo pasan (calificar, info, eliminar)');
+ok(appJs.includes("agregarCancion (JSON en POST ' + API_URL + ')"),
+  'R2-LOG app.js: el aviso de JSON inválido en agregar incluye el endpoint (POST API_URL)');
 
 // ---------- 19. E2/E3 — calificar estricto [regla backend] ----------
 // Espejo de PUT /api/canciones/<id>/calificar en main.cpp (E2): cuerpo
@@ -932,6 +1035,645 @@ const saludBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/salud")'
 ok(saludBlock.includes('res["status"]') && saludBlock.includes('admin_token_configurado') && saludBlock.includes('tokenConfigurado()') && !saludBlock.includes('respSegura(200, "OK")'),
   'P16 main.cpp /api/salud devuelve JSON {"status":"OK","admin_token_configurado":bool} (nunca el valor del token)');
 
-console.log(`\n${pasadas} PASS, ${fallos} FAIL, ${saltadas} SKIP${tieneDatos ? '' : ' (sin datos reales: solo [invariante])'}`);
-console.log(fallos === 0 ? 'TODO OK' : `${fallos} FALLOS`);
-process.exit(fallos === 0 ? 0 : 1);
+// ---------- 22. Ronda 2 oleada 2 — control de errores ----------
+// main.cpp: operator[] de crow::json::rvalue LANZA si la clave falta
+// (CROW_JSON_NO_ERROR_CHECK no está definido), así que los campos
+// opcionales se leen con has() (textoOpcional/boolOpcional): ausentes →
+// defecto, presentes con otro tipo → 400 (antes 500 "Error interno.").
+ok(mainCpp.includes('static bool textoOpcional') && mainCpp.includes('static bool boolOpcional'),
+  'R2-O2 main.cpp: textoOpcional/boolOpcional existen (lectura segura con has())');
+ok(!/textoJson\(body\[/.test(mainCpp) && !/boolJson\(body\[/.test(mainCpp) && !/textoJson\(it\[/.test(mainCpp),
+  'R2-O2 main.cpp: ningún acceso sin guarda a body["..."]/it["..."] en POST/PUT (antes 500 con el campo ausente)');
+ok(mainCpp.includes('if (!textoOpcional(body, "genero"') && mainCpp.includes('if (!boolOpcional(body, "instrumental"'),
+  'R2-O2 main.cpp: POST/PUT usan textoOpcional/boolOpcional (ausente → defecto, tipo incorrecto → 400)');
+ok(mainCpp.includes('instrumental_actual') && mainCpp.includes('banda_sonora_actual') && mainCpp.includes('SELECT genero, etiqueta_especial, instrumental, banda_sonora'),
+  'R2-O2 main.cpp: PUT /info conserva instrumental/banda_sonora actuales si no vienen (antes un PUT parcial los ponía en false)');
+ok(mainCpp.includes('it.t() != crow::json::type::Object'),
+  'R2-O2 main.cpp: leerArtistasJson rechaza el elemento no-objeto con 400 (antes it["nombre"] lanzaba 500)');
+ok(mainCpp.includes('std::isfinite(ritmo)') && mainCpp.includes('std::isfinite(v) ? v : defecto'),
+  'R2-O2 main.cpp: calificar rechaza NaN (isfinite) y parseDoble descarta no-finitos');
+// Las guardas (autorizado, límite de lectura, cuerpo 413) van DENTRO del
+// try: 12 espacios de indentación; a 8 espacios (fuera del try) no queda
+// ninguna, así que una excepción ahí ya no escapa al 500 de Crow.
+const esGuardaDentro = l => l.startsWith('            if (int st = autorizado(req') || l.startsWith('            if (excedeLimiteLectura(req') || l.startsWith('            if (cuerpoDemasiadoGrande(req');
+const esGuardaFuera = l => l.startsWith('        if (int st = autorizado(req') || l.startsWith('        if (excedeLimiteLectura(req') || l.startsWith('        if (cuerpoDemasiadoGrande(req');
+const guardasDentro = mainCpp.split('\n').filter(esGuardaDentro).length;
+const guardasFuera = mainCpp.split('\n').filter(esGuardaFuera).length;
+// Ronda 3, oleada 5: la 7ª guarda de lectura es /api/salud/db (antes 6;
+// el total pasa de 13 a 14). /api/salud (ping de Render) sigue SIN guarda.
+ok(guardasDentro === 14 && guardasFuera === 0,
+  `R2-O2 main.cpp: 14 guardas dentro del try (4 auth + 7 lectura + 3 cuerpo 413), 0 fuera (dentro ${guardasDentro}, fuera ${guardasFuera})`);
+const lecturaDentro = mainCpp.split('\n').filter(l => l.startsWith('            if (excedeLimiteLectura(req')).length;
+ok(lecturaDentro === 7 && mainCpp.includes('respuestaLimiteLectura("GET /api/salud/db")'),
+  `R2-O2 main.cpp: 7 guardas de lectura dentro del try (lista, stats, histograma, exportar, generos, artistas y /api/salud/db — la 7ª, ronda 3 oleada 5)`);
+// app.js: cualquier 5xx es SIN CONEXIÓN (502/504 del proxy incluidos) y
+// el 413 nuevo del backend tiene mensaje propio.
+ok(appJs.includes('res.status >= 500') && appJs.includes('res.status === 413'),
+  'R2-O2 app.js: mostrarErrorHttp cubre cualquier 5xx (502/504 incluidos) y el 413');
+ok(appJs.includes('function fetchConTimeout') && appJs.includes('function errorHttp') && appJs.includes('function toastLectura'),
+  'R2-O2 app.js: helpers fetchConTimeout/errorHttp/toastLectura existen');
+ok((appJs.match(/await fetchConTimeout\(/g) || []).length === 8,
+  'R2-O2 app.js: 8 lecturas usan fetchConTimeout con 30 s (antes colgaban sin timeout)');
+ok((appJs.match(/toastLectura\(e\);/g) || []).length === 4,
+  'R2-O2 app.js: 4 catches de lectura usan toastLectura (429 → DEMASIADOS INTENTOS, resto → SIN CONEXIÓN)');
+ok((appJs.match(/showToast\('GUARDANDO…'\)/g) || []).length === 2,
+  'R2-O2 app.js: GUARDANDO… solo en agregar/calificar tras validar (antes conBloqueo lo mostraba también al rechazar por validación)');
+
+// ---------- 23. Ronda 3, oleada 1 — huecos de cobertura ----------
+// NOTA DE COORDINACIÓN (oleada 6 / fixture): la sección 8 y el test de
+// género top de la sección 5 usan el fixture VIEJO (public/datos-reales.json,
+// 13-nov, antes de los lotes 2-4 y de artistas). Con un export fresco
+// (public/datos-en-vivo.json, leído solo para verificar, sin tocarlo) el
+// Top 10, el histograma, GOD 76 y las stats NO cambian, pero la sección 8
+// (17 géneros, Hip Hop 39 / Otro 36 / OST 4, "Ver más · 14") y el género
+// top (Baladas 18.8; en vivo: Bachata 19.3) SÍ cambian. Si la oleada 6
+// actualiza el fixture, la sección 8 y ese test deben actualizarse a los
+// valores en vivo. La sección 8 NO se toca en esta oleada.
+// 23a. GOD ≥19 (ancla explícita; confirmación de Nova 2026-11-16 15:47:
+// las 4 canciones en 19.00 exacto —IDs 8, 84, 286, 587— se quedan verdes;
+// GOD = 76). El código ya usaba >= 19, pero el harness solo lo tenía
+// implícito (colorFila(19.00) en la sección 12 y el bin 19-20 = 76 en la
+// sección 4): aquí queda fijado como obra maestra y como verde, con el
+// borde 18.99/19.00 en ambos lados.
+ok(colorFila(19.00, 100) === '#22c55e' && colorFila(18.99, 100) !== '#22c55e',
+  'R3 GOD ≥19: 19.00 → verde pleno; 18.99 sigue en transición fuchsia→verde (89.89%), NO verde pleno');
+ok(statsDe([{ calificacion_final: 19.00 }]).obras_maestras === 1 && statsDe([{ calificacion_final: 18.99 }]).obras_maestras === 0,
+  'R3 GOD ≥19: 19.00 cuenta como obra maestra en stats, 18.99 no (el umbral es ≥19, no >19)');
+if (tieneDatos) {
+  ok(C.filter(c => c.calificacion_final >= 19).length === 76,
+    '[datos reales] stats obras_maestras (GOD ≥19): 76');
+  for (const id of [8, 84, 286, 587]) {
+    const c = C.find(x => x.id === id);
+    ok(c && c.calificacion_final === 19.00,
+      `[datos reales] ID ${id} en 19.00 exacto ("${c ? c.titulo : '?'}") → verde GOD (confirmación Nova 2026-11-16)`);
+  }
+  const cal = C.filter(c => c.calificacion_final > 0).map(c => c.calificacion_final);
+  const prom = cal.reduce((a, b) => a + b, 0) / cal.length;
+  const ord = [...cal].sort((a, b) => a - b);
+  ok(Math.abs(prom - 16.4847) < 0.0001, `[datos reales] stats promedio: ${prom.toFixed(4)} (esperado 16.4847, igual que en vivo)`);
+  ok(ord[338] === 16.86, `[datos reales] stats mediana: ${ord[338]} (PERCENTILE_CONT 0.5 del endpoint; la 339ª de 677)`);
+  ok(Math.min(...cal) === 10.05 && Math.max(...cal) === 19.6, '[datos reales] stats mínimo 10.05, máximo 19.60');
+} else skip('GOD 76 / 19.00 exacto / promedio/mediana/mín/máx con datos reales (sin public/datos-reales.json)');
+const statsBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones/stats")'), mainCpp.indexOf('// 2b. HISTOGRAMA'));
+ok(statsBlock.includes('PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY calificacion_final) FILTER (WHERE calificacion_final > 0)') && statsBlock.includes('COUNT(*) FILTER (WHERE calificacion_final >= 19)') && statsBlock.includes('COUNT(*) FILTER (WHERE COALESCE(calificacion_final, 0) = 0)'),
+  'R3 stats SQL: mediana PERCENTILE_CONT 0.5 solo sobre calificadas; obras_maestras con >= 19 (GOD); sin_calificar con COALESCE = 0');
+
+// 23b. mostrarErrorHttp: el mapa estado→mensaje solo vivía en el código
+// (E1). Si alguien cambia el 409 o el 429, nada lo notaba. Se extrae la
+// función real de app.js (async) y se corre con respuestas falsas.
+let mostrarErrorHttp;
+const avisosErrorHttp = [];
+try {
+  const srcMostrar = extraerFuncion(appJsSrc, 'mostrarErrorHttp', 'public/app.js');
+  mostrarErrorHttp = new Function('MSG_SIN_CONEXION', 'showToast', 'async ' + srcMostrar + '\nreturn mostrarErrorHttp;')('SIN CONEXIÓN CON EL SERVIDOR', (m, err) => avisosErrorHttp.push([m, !!err]));
+} catch (e) {
+  console.error('FALLO DE EXTRACCIÓN (R3): mostrarErrorHttp: ' + e.message);
+  process.exit(1);
+}
+const pendientes = [];
+const resFalso = (status, texto = '') => ({ status, text: async () => texto });
+pendientes.push((async () => {
+  const probar = async (status, texto, defecto) => { avisosErrorHttp.length = 0; await mostrarErrorHttp(resFalso(status, texto), defecto); return avisosErrorHttp[0] && avisosErrorHttp[0][0]; };
+  ok(await probar(400, 'Faltan datos.', 'POR DEFECTO') === 'FALTAN DATOS.', 'R3 mostrarErrorHttp: 400 lee el cuerpo ("Faltan datos." → "FALTAN DATOS.")');
+  ok(await probar(400, 'x'.repeat(200), 'POR DEFECTO') === 'X'.repeat(120), 'R3 mostrarErrorHttp: 400 trunca el cuerpo a 120 caracteres (una página de error del proxy no llena el toast)');
+  ok(await probar(400, '   ', 'POR DEFECTO') === 'POR DEFECTO', 'R3 mostrarErrorHttp: 400 con cuerpo vacío usa el mensaje por defecto');
+  ok(await probar(401, '', 'POR DEFECTO') === 'CLAVE INCORRECTA', 'R3 mostrarErrorHttp: 401 → CLAVE INCORRECTA');
+  ok(await probar(404, '', 'POR DEFECTO') === 'NO ENCONTRADA', 'R3 mostrarErrorHttp: 404 → NO ENCONTRADA');
+  ok(await probar(409, '', 'POR DEFECTO') === 'ERROR: LA CANCIÓN YA EXISTE', 'R3 mostrarErrorHttp: 409 → ERROR: LA CANCIÓN YA EXISTE');
+  ok(await probar(413, '', 'POR DEFECTO') === 'DATOS DEMASIADO GRANDES', 'R3 mostrarErrorHttp: 413 → DATOS DEMASIADO GRANDES');
+  ok(await probar(429, '', 'POR DEFECTO') === 'DEMASIADOS INTENTOS, ESPERA', 'R3 mostrarErrorHttp: 429 → DEMASIADOS INTENTOS, ESPERA');
+  for (const st of [500, 502, 503, 504]) ok(await probar(st, '', 'POR DEFECTO') === 'SIN CONEXIÓN CON EL SERVIDOR', `R3 mostrarErrorHttp: ${st} → SIN CONEXIÓN (cualquier 5xx, 502/504 del proxy incluidos)`);
+  ok(await probar(418, '', 'POR DEFECTO') === 'POR DEFECTO', 'R3 mostrarErrorHttp: estado desconocido (418) usa el mensaje por defecto');
+  const probar401 = async (valor) => { avisosErrorHttp.length = 0; await mostrarErrorHttp({ status: 401, text: async () => '', headers: { get: k => k === 'X-Auth-Error' ? valor : null } }, 'POR DEFECTO'); return avisosErrorHttp[0] && avisosErrorHttp[0][0]; };
+  ok(await probar401('token_no_configurado') === 'CLAVE NO CONFIGURADA EN EL SERVIDOR', 'R3-O2 mostrarErrorHttp: 401 con X-Auth-Error token_no_configurado -> CLAVE NO CONFIGURADA EN EL SERVIDOR');
+  ok(await probar401(null) === 'CLAVE INCORRECTA', 'R3-O2 mostrarErrorHttp: 401 sin cabecera -> CLAVE INCORRECTA');
+  ok(await probar401('otro_valor') === 'CLAVE INCORRECTA', 'R3-O2 mostrarErrorHttp: 401 con otro valor de cabecera -> CLAVE INCORRECTA');
+  ok(avisosErrorHttp.every(a => a[1] === true), 'R3 mostrarErrorHttp: todos los avisos son de error (showToast con err=true)');
+})());
+
+// 23c. claveCancion/normalizarTexto extraídas de app.js: el duplicado
+// 409 del backend es LOWER(titulo)=LOWER + LOWER(artista)=LOWER; el
+// frontend usa la misma clave para avisar antes de enviar.
+let claveCancion;
+try {
+  const srcNorm = extraerFuncion(appJsSrc, 'normalizarTexto', 'public/app.js');
+  const srcClave = extraerFuncion(appJsSrc, 'claveCancion', 'public/app.js');
+  claveCancion = new Function(srcNorm + '\n' + srcClave + '\nreturn claveCancion;')();
+} catch (e) {
+  console.error('FALLO DE EXTRACCIÓN (R3): claveCancion: ' + e.message);
+  process.exit(1);
+}
+const duplicadoExiste = (lista, t, a) => lista.some(c => claveCancion(c.titulo, c.artista) === claveCancion(t, a));
+ok(claveCancion('LA FOTO DEL CARNET', 'Leonardo Favio') === claveCancion('la foto del carnet', '  leonardo   favio '), 'R3 claveCancion: mismo título/artista con otra capitalización y espacios → misma clave (el 409 no depende de cómo se escribió)');
+ok(claveCancion('X', 'A') !== claveCancion('X', 'B') && claveCancion('X', 'A') !== claveCancion('Y', 'A'), 'R3 claveCancion: cambia el título o el artista → clave distinta');
+ok(duplicadoExiste([{ titulo: 'LA FOTO DEL CARNET', artista: 'Leonardo Favio' }], 'la foto del carnet', 'leonardo favio'), 'R3 POST 409: duplicado sin importar capitalización (LOWER(titulo)=LOWER y LOWER(artista)=LOWER en main.cpp)');
+ok(!duplicadoExiste([{ titulo: 'LA FOTO DEL CARNET', artista: 'Leonardo Favio' }], 'La foto del carnet', 'Otro Artista'), 'R3 POST 409: mismo título con otro artista NO es duplicado');
+ok(mainCpp.includes('SELECT id FROM canciones WHERE LOWER(titulo) = LOWER($1) AND LOWER(artista) = LOWER($2)'), 'R3 POST: la comprobación de duplicado es por LOWER(título) y LOWER(artista)');
+
+// 23d. Rate limits: autorizado (5 fallos → 429, ventana 10 min, éxito
+// resetea) y lectura (120/min por IP). Espejos del patrón mapa+expiración
+// de main.cpp; los valores (5, 10 min, 120, Retry-After) se anclan por texto.
+const espejoAutorizado = (() => {
+  const fallos = new Map();
+  const VENTANA = 10 * 60 * 1000;
+  return (ip, tokenOk, configurado, ahora) => {
+    if (!configurado) return 401;
+    let f = fallos.get(ip);
+    if (!f || ahora - f.t0 > VENTANA) { f = { n: 0, t0: ahora }; fallos.set(ip, f); }
+    if (f.n >= 5) return 429;
+    if (tokenOk) { f.n = 0; return 0; }
+    f.n++; return 401;
+  };
+})();
+ok([0, 1, 2, 3, 4].every(i => espejoAutorizado('1.2.3.4', false, true, i * 1000) === 401) && espejoAutorizado('1.2.3.4', false, true, 5000) === 429, 'R3 autorizado: 5 fallos seguidos → 401; el 6º → 429');
+ok(espejoAutorizado('1.2.3.4', true, true, 6000) === 429, 'R3 autorizado: con 429 activo, ni el token correcto pasa (hay que esperar a que venza la ventana)');
+ok(espejoAutorizado('1.2.3.4', true, true, 11 * 60 * 1000) === 0, 'R3 autorizado: vencida la ventana de 10 min, el contador se resetea y el token correcto pasa');
+ok(espejoAutorizado('9.9.9.9', false, true, 0) === 401, 'R3 autorizado: el límite es por IP (otra IP empieza en 0 fallos)');
+ok(espejoAutorizado('2.2.2.2', false, true, 0) === 401 && espejoAutorizado('2.2.2.2', false, true, 1000) === 401 && espejoAutorizado('2.2.2.2', true, true, 2000) === 0 && espejoAutorizado('2.2.2.2', false, true, 3000) === 401 && espejoAutorizado('2.2.2.2', false, true, 4000) === 401, 'R3 autorizado: un éxito resetea el contador (tras 2 fallos + éxito, los 2 fallos siguientes siguen siendo 401, no 429)');
+ok(espejoAutorizado('3.3.3.3', false, false, 0) === 401 && espejoAutorizado('3.3.3.3', true, false, 0) === 401, 'R3 autorizado fail-closed: sin ADMIN_TOKEN válido (ausente o <24), TODAS las escrituras son 401 aunque el token coincida');
+const espejoLectura = (() => {
+  const lecturas = new Map();
+  const VENTANA = 60 * 1000;
+  return (ip, ahora) => {
+    let f = lecturas.get(ip);
+    if (!f || ahora - f.t0 > VENTANA) { f = { n: 0, t0: ahora }; lecturas.set(ip, f); }
+    return (++f.n > 120);
+  };
+})();
+let excede121 = false;
+for (let i = 0; i < 121; i++) excede121 = espejoLectura('5.5.5.5', i * 100);
+ok(excede121 === true, 'R3 lectura: la petición 121 en el mismo minuto excede el límite (120/min por IP)');
+ok(espejoLectura('5.5.5.5', 61 * 1000) === false, 'R3 lectura: vencido el minuto, el contador se resetea');
+ok(espejoLectura('6.6.6.6', 0) === false, 'R3 lectura: el límite es por IP');
+ok(mainCpp.includes('if (f.first >= 5) { logAuth(donde, 429, ip); return 429; }'), 'R3 autorizado: 5 fallos seguidos → 429 (ancla de texto)');
+ok(mainCpp.includes('if (++f.first > 120) return true;'), 'R3 lectura: más de 120 peticiones por minuto → 429 (ancla de texto)');
+ok(mainCpp.includes('r.add_header("Retry-After", "600")') && mainCpp.includes('r.add_header("Retry-After", "60")'), 'R3 Retry-After: 600 s en auth (429) y 60 s en lectura (429)');
+ok(mainCpp.includes('return token != nullptr && std::string(token).size() >= 24;'), 'R3 tokenConfigurado: ADMIN_TOKEN válido solo con ≥24 caracteres (fail-closed)');
+ok(mainCpp.includes('std::chrono::minutes(10)') && mainCpp.includes('std::chrono::minutes(1)'), 'R3 ventanas: 10 min para fallos de auth, 1 min para lectura');
+
+// 23e. Cuerpo 64 KB → 413 y timeouts de 30 s.
+const cuerpoDemasiadoGrande = tam => tam > 65536;
+ok(!cuerpoDemasiadoGrande(65536) && cuerpoDemasiadoGrande(65537) && !cuerpoDemasiadoGrande(0), 'R3 cuerpo: 65536 bytes pasa, 65537 → 413 (el límite es > 64 KB, no >=)');
+ok(mainCpp.includes('static const size_t LIMITE_CUERPO = 65536;'), 'R3 cuerpo: LIMITE_CUERPO = 65536 (64 KB)');
+ok((mainCpp.match(/cuerpoDemasiadoGrande\(req\)/g) || []).length === 3, 'R3 cuerpo: el límite 413 se comprueba en las 3 escrituras con body (POST, PUT calificar, PUT info)');
+const delBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones/<int>")'), mainCpp.indexOf('// LECTURA DEL PUERTO'));
+ok(!delBlock.includes('cuerpoDemasiadoGrande'), 'R3 cuerpo: DELETE no comprueba el cuerpo (no lleva body; por diseño)');
+ok((appJs.match(/setTimeout\(\(\) => ctrl\w*\.abort\(\), 30000\)/g) || []).length === 3, 'R3 timeouts 30 s: fetchConTimeout, apiFetch y cargarCatalogo abortan a los 30 s (3)');
+ok(appJs.includes('}, 15000);'), 'R3 estadísticas: reintento programado a los 15 s si la primera carga falla (E7)');
+ok(appJs.includes('setTimeout(() => cargarCatalogo(1), 300)'), 'R3 búsqueda: debounce de 300 ms (no se pide en cada tecla)');
+ok(appJs.includes('}, 400);'), 'R3 duplicado: el aviso se calcula 400 ms tras dejar de escribir');
+
+// 23f. Token en sessionStorage (decisión 2026-11-14): se borra al cerrar
+// la pestaña; los filtros siguen en localStorage (no sensibles).
+ok(appJs.includes("sessionStorage.getItem('musica_token')") && appJs.includes("sessionStorage.setItem('musica_token'") && (appJs.match(/sessionStorage\.removeItem\('musica_token'\)/g) || []).length === 2, 'R3 token en sessionStorage: get/set/remove de musica_token (2 removes: al cancelar la clave y tras el segundo 401)');
+ok(appJs.split('\n').filter(l => l.includes('localStorage.')).every(l => l.includes('musica_filtros')), 'R3 localStorage solo guarda filtros (musica_filtros); el token nunca va a localStorage');
+ok(appJs.includes("'X-Admin-Token': t"), 'R3 apiFetch envía el token de sessionStorage en la cabecera X-Admin-Token');
+
+// 23g. Validación POST/PUT: título/artista, 404 antes que género (E13),
+// id<=0 → 400 en las 3 rutas con id, 409 por unique_violation.
+const validarTituloArtista = (t, a) => { if (!t || !a) return 'Campos vacios.'; if (t.length > 200 || a.length > 200) return 'Titulo o artista demasiado largo.'; return ''; };
+ok(validarTituloArtista('', 'X') === 'Campos vacios.' && validarTituloArtista('X', '') === 'Campos vacios.', 'R3 validarTituloArtista: título o artista vacío → 400 "Campos vacios."');
+ok(validarTituloArtista('x'.repeat(201), 'Y') === 'Titulo o artista demasiado largo.' && validarTituloArtista('X', 'y'.repeat(201)) === 'Titulo o artista demasiado largo.', 'R3 validarTituloArtista: más de 200 caracteres → 400');
+ok(validarTituloArtista('x'.repeat(200), 'y'.repeat(200)) === '', 'R3 validarTituloArtista: exactamente 200 caracteres pasa');
+ok(mainCpp.includes('if (titulo.empty() || artista.empty()) return "Campos vacios."') && mainCpp.includes('if (titulo.size() > 200 || artista.size() > 200) return "Titulo o artista demasiado largo."'), 'R3 validarTituloArtista: mismas reglas en main.cpp (vacío y >200)');
+const postBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones").methods("POST"'), mainCpp.indexOf('// 4. CALIFICAR (PUT)'));
+ok(postBlock.includes('if (!body.has("titulo") || !body.has("artista")'), 'R3 POST sin titulo/artista → 400 "Faltan datos."');
+const putInfoBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones/<int>/info")'), mainCpp.indexOf('// 6. ELIMINAR (DELETE)'));
+ok(enOrden(putInfoBlock, ['SELECT genero, etiqueta_especial, instrumental, banda_sonora FROM canciones WHERE id = $1', 'No encontrado', 'enLista(etiqueta, ETIQUETAS_VALIDAS)']), 'R3 PUT /info E13: id inexistente → 404 ANTES de validar el género (un 404 no se disfraza de 400)');
+ok((mainCpp.match(/if \(id <= 0\) return rechazo/g) || []).length === 3, 'R3 id<=0 → 400 "ID invalido." en las 3 rutas con id (calificar, info, eliminar)');
+ok((mainCpp.match(/catch \(const pqxx::unique_violation&\)/g) || []).length === 2, 'R3 409 por unique_violation en POST y en PUT /info (duplicado en la DB, no solo en la comprobación previa)');
+
+// 23h. Órdenes de GET /api/canciones: lista blanca; lo desconocido es Top.
+ok(mainCpp.includes('if (orden_param == "peores")') && mainCpp.includes('extra_cond = " AND calificacion_final > 0"'), 'R3 orden peores: solo calificadas (calificacion_final > 0) y DESEMPATE_ASC');
+ok(mainCpp.includes('else if (orden_param == "sin_calificar")') && mainCpp.includes('extra_cond = " AND COALESCE(calificacion_final, 0) = 0"'), 'R3 orden sin_calificar: COALESCE(calificacion_final, 0) = 0 (NULL también es sin calificar)');
+ok(mainCpp.includes('else if (orden_param == "recientes") order_sql = "id DESC"'), 'R3 orden recientes: id DESC');
+ok(mainCpp.includes('else if (orden_param == "alfabetico") order_sql = "titulo ASC, id ASC"'), 'R3 orden alfabetico: titulo ASC, id ASC (mismo título, orden fijo)');
+ok(mainCpp.includes('else if (orden_param == "ritmo" || orden_param == "letras" || orden_param == "coro" || orden_param == "importancia")'), 'R3 orden por métrica: solo ritmo/letras/coro/importancia (lista blanca, sin inyección en el ORDER BY)');
+const ordenSqlDe = o => {
+  if (o === 'peores') return 'peores';
+  if (o === 'sin_calificar') return 'top+sin_calificar';
+  if (['ritmo', 'letras', 'coro', 'importancia'].includes(o)) return 'metrica:' + o;
+  if (o === 'recientes') return 'id DESC';
+  if (o === 'alfabetico') return 'titulo ASC, id ASC';
+  return 'top';
+};
+ok(ordenSqlDe('foo') === 'top' && ordenSqlDe('') === 'top' && ordenSqlDe('TOP') === 'top' && ordenSqlDe('peores; DROP TABLE canciones') === 'top', 'R3 orden desconocido/vacío/mayúsculas/inyección → Top por defecto (el parámetro nunca se concatena al SQL)');
+
+// 23i. Búsqueda y notas: escaparLike, tope de 100 (UTF-8 seguro desde la
+// ronda 3, oleada 5) y parseDoble con defecto.
+const escaparLike = s => s.replace(/([\\%_])/g, '\\$1');
+ok(escaparLike('100%_x\\y') === '100\\%\\_x\\\\y', 'R3 escaparLike: %, _ y \\ del usuario se buscan literalmente (no como comodines LIKE)');
+ok(escaparLike('normal') === 'normal' && escaparLike('') === '', 'R3 escaparLike: texto normal y vacío no cambian');
+ok(mainCpp.includes('static std::string escaparLike(const std::string& s)') && mainCpp.includes("o += '\\\\';"), 'R3 escaparLike existe en main.cpp y escapa con backslash');
+const truncarUtf8 = (s, maxBytes) => {
+  const buf = Buffer.from(s, 'utf8');
+  if (buf.length <= maxBytes) return s;
+  let n = maxBytes;
+  while (n > 0 && (buf[n] & 0xC0) === 0x80) n--;
+  return buf.subarray(0, n).toString('utf8');
+};
+ok(truncarUtf8('x'.repeat(101), 100) === 'x'.repeat(100), 'R3 truncarUtf8: 101 ASCII → 100 (tope de 100 bytes)');
+ok(truncarUtf8('é'.repeat(60), 100) === 'é'.repeat(50), 'R3 truncarUtf8: 60 é (120 bytes) → 50 é (100 bytes exactos, sin partir carácter)');
+ok(truncarUtf8('a'.repeat(99) + 'é', 100) === 'a'.repeat(99), 'R3 truncarUtf8: si el byte 100 cae dentro de é, se corta ANTES de él (99 a; el substr viejo dejaba UTF-8 inválido y el LIKE daba 500)');
+ok(truncarUtf8('a'.repeat(99) + '€', 100) === 'a'.repeat(99), 'R3 truncarUtf8: carácter de 3 bytes (€) en el corte también se corta antes');
+ok(truncarUtf8('corto', 100) === 'corto', 'R3 truncarUtf8: por debajo del tope no toca nada');
+ok(mainCpp.includes('static std::string truncarUtf8(const std::string& s, size_t maxBytes)') && mainCpp.includes('if (buscar.size() > 100) buscar = truncarUtf8(buscar, 100);'), 'R3 buscar: tope de 100 con truncarUtf8 (ronda 3, oleada 5), sin partir UTF-8');
+const parseDoble = (s, def) => { if (s == null || !String(s).trim()) return def; const v = Number(s); return Number.isFinite(v) ? v : def; };
+ok(parseDoble('abc', -1) === -1 && parseDoble('', -1) === -1 && parseDoble('   ', -1) === -1 && parseDoble('NaN', -1) === -1 && parseDoble('Infinity', -1) === -1 && parseDoble('15.5', -1) === 15.5 && parseDoble('0', -1) === 0, 'R3 parseDoble: texto/vacío/NaN/Infinity → defecto; número válido (incluido 0) pasa');
+ok(mainCpp.includes('double f_min = nota_min >= 0 ? nota_min : -1, f_max = nota_max >= 0 ? nota_max : 999;'), 'R3 nota_min/nota_max: -1 = sin filtro (f_min -1, f_max 999)');
+
+// 23j. Salud de la DB, pool, CORS, puerto, rank y artistas.
+const saludDbBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/salud/db")'), mainCpp.indexOf('// 1. LEER (GET)'));
+ok(saludDbBlock.includes('N.exec("SELECT 1")') && saludDbBlock.includes('respSegura(503, "DB DOWN")') && saludDbBlock.includes('respSegura(200, "OK")'), 'R3 /api/salud/db: SELECT 1 → 200 OK; caída → 503 DB DOWN');
+ok(!saludBlock.includes('ConnectionGuard') && !saludBlock.includes('db_pool') && !saludBlock.includes('excedeLimiteLectura'), 'R3 /api/salud no toca la DB ni el pool y no tiene límite de lectura (el ping de Render debe responder siempre)');
+ok(saludDbBlock.includes('if (excedeLimiteLectura(req)) return respuestaLimiteLectura("GET /api/salud/db");'), 'R3 /api/salud/db SÍ tiene límite de lectura (ronda 3, oleada 5: tomaba una conexión del pool por petición sin tope)');
+ok(mainCpp.includes('throw ErrorPoolTimeout("timeout esperando conexion a la base (5 s)")'), 'R3 pool: 5 s esperando conexión → ErrorPoolTimeout');
+ok(mainCpp.includes('return respSegura(503, "DB NO DISPONIBLE")'), 'R3 pool timeout → 503 DB NO DISPONIBLE (no el 500 genérico)');
+ok(mainCpp.includes('> std::chrono::seconds(30)'), 'R3 pool: valida la conexión si lleva >30 s inactiva (SELECT 1) antes de usarla');
+ok(mainCpp.includes('make_unique<ConnectionPool>(cadena_conexion, 5)'), 'R3 pool: 5 conexiones máximo, perezosas (no se abren al arrancar)');
+ok(mainCpp.includes('https://musica-plum-psi.vercel.app') && mainCpp.includes('ALLOWED_ORIGIN=* no admitido'), 'R3 CORS: origen por defecto el dominio de Vercel; "*" se rechaza y se vuelve a Vercel');
+ok(mainCpp.includes('std::min(65535, std::max(1, parseEntero(std::getenv("PORT"), 18080)))'), 'R3 puerto: PORT entre 1 y 65535, defecto 18080');
+ok(mainCpp.includes('RANK() OVER (ORDER BY calificacion_final DESC NULLS LAST,') && mainCpp.includes('AS rank_global'), 'R3 rank_global: RANK() OVER con el mismo DESEMPATE del Top (el puesto es global, no de página)');
+const artBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/artistas")'), mainCpp.indexOf('// 3. CREAR (POST)'));
+ok(artBlock.includes('FROM artistas a LEFT JOIN cancion_artistas ca') && !artBlock.includes('HAVING'), 'R3 /api/artistas: LEFT JOIN sin HAVING — lista TODOS los artistas, incluidos los productores puros en 0/0');
+ok(artBlock.includes('ORDER BY canciones DESC, a.nombre ASC'), 'R3 /api/artistas: orden por canciones DESC, nombre ASC');
+ok(mainCpp.includes('GROUP BY 1 ORDER BY promedio DESC, total DESC'), 'R3 /api/canciones/generos: orden promedio DESC, total DESC (desempate por total)');
+ok(mainCpp.includes('o.substr(0, 500) + "...[truncado]"'), 'R3 sanitizarLog trunca a 500 caracteres');
+const exportBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones/exportar")'), mainCpp.indexOf('// 2d. PROMEDIO'));
+ok(!exportBlock.includes('autorizado(') && exportBlock.includes('excedeLimiteLectura'), 'R3 export público: sin ADMIN_TOKEN (solo límite de lectura 120/min; decisión 2026-11-13 08:10)');
+ok((mainCpp.match(/autorizado\(req,/g) || []).length === 4, 'R3 auth: solo las 4 escrituras exigen ADMIN_TOKEN (POST, PUT calificar, PUT info, DELETE); todas las lecturas son públicas');
+
+// 23k. Export CSV: anti-fórmula Excel, BOM y \r\n.
+const cel = v => { let s = (v && typeof v === 'object') ? JSON.stringify(v) : String(v ?? ''); if (/^[=+\-@|%]/.test(s.trimStart())) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; }; // espejo de app.js (ronda 3, oleada 2: objetos como JSON, no "[object Object]")
+ok(cel('=2+2') === '"\'=2+2"', 'R3 CSV: celda que empieza con = lleva apóstrofe (anti-fórmula Excel)');
+ok(cel(' =2+2') === '"\' =2+2"', 'R3 CSV: el trimStart importa (" =2+2" también es fórmula para Excel)');
+ok(cel('Hola "X"') === '"Hola ""X"""', 'R3 CSV: comillas dobles se duplican');
+ok(cel('+cmd') === '"\'+cmd"' && cel('@a') === '"\'@a"' && cel('-5') === '"\'-5"' && cel('|x') === '"\'|x"' && cel('%y') === '"\'%y"', 'R3 CSV: +, @, -, | y % iniciales también llevan apóstrofe');
+ok(cel(null) === '""' && cel(19.6) === '"19.6"' && cel('normal') === '"normal"', 'R3 CSV: null → vacío, número → texto, normal sin cambios');
+ok(appJs.includes('\\ufeff') && appJs.includes(".join('\\r\\n')"), 'R3 CSV: BOM UTF-8 y saltos \\r\\n (Excel en Windows)');
+ok(cel([{id:1,nombre:'Karol G',rol:'principal'}]).includes('Karol G') && !cel([{id:1,nombre:'Karol G',rol:'principal'}]).includes('[object Object]'), 'R3-O2 CSV: artistas (objeto) va como JSON con el nombre, no "[object Object]"');
+ok(appJs.includes("typeof v === 'object'") && appJs.includes('JSON.stringify(v)'), 'R3-O2 CSV: app.js usa JSON.stringify para objetos en cel (ancla)');
+
+// 23l. Bloqueo por acción (E9), respuestas obsoletas (E6), sliders por
+// arrastre sin total previsto, Editar en Evaluar (nunca Eliminar).
+const bloqueos = new Set();
+const conBloqueoEspejo = async (fn, clave) => { if (bloqueos.has(clave)) return 'bloqueado'; bloqueos.add(clave); try { return await fn(); } finally { bloqueos.delete(clave); } };
+pendientes.push((async () => {
+  const r1 = await conBloqueoEspejo(async () => conBloqueoEspejo(async () => 'dentro', 'agregar'), 'agregar');
+  ok(r1 === 'bloqueado', 'R3 conBloqueo: la misma acción no se re-ejecuta mientras corre (doble clic en Agregar no duplica)');
+  ok(await conBloqueoEspejo(async () => 'ok-calificar', 'calificar') === 'ok-calificar', 'R3 conBloqueo: otra acción distinta NO se bloquea (bloqueo por acción, no global)');
+  ok(await conBloqueoEspejo(async () => 'otra-vez', 'agregar') === 'otra-vez', 'R3 conBloqueo: al terminar, la misma acción vuelve a valer (finally libera)');
+})());
+ok(appJs.includes('const bloqueosAccion = new Set();'), 'R3 conBloqueo existe en app.js (Set por clave de acción)');
+ok(appJs.includes('if (miReq !== reqActual)'), 'R3 cargarCatalogo E6: respuesta obsoleta se descarta (miReq !== reqActual)');
+ok(appJs.includes('if (!data.canciones.length && pagina > 1 && paginaDestino < pagina) return cargarCatalogo(paginaDestino);'), 'R3 cargarCatalogo E6: última página vacía retrocede una sola vez (sin bucle)');
+const actValoresBlock = appJs.slice(appJs.indexOf('function actualizarValores()'), appJs.indexOf('function vigilarSliders()'));
+ok(!actValoresBlock.includes('0.35') && !actValoresBlock.includes('calificacion_final'), 'R3 sliders: actualizarValores no calcula ningún total previsto (solo muestra los 4 valores)');
+ok(appJs.includes("el.addEventListener('pointerdown'") && appJs.includes("['pointerup', 'pointercancel', 'pointerleave']"), 'R3 sliders: solo por arrastre (pointerdown/pointerup/pointercancel/pointerleave; sin botones +/- ni entrada numérica)');
+ok(appJs.includes('function editarActiva() { if (idSeleccionadoGlobal) openEditModal(idSeleccionadoGlobal); }'), 'R3 Evaluar: editarActiva solo abre el modal de Editar (nunca Eliminar)');
+ok((appJs.match(/eliminarCancion\(/g) || []).length === 2, 'R3 Eliminar: solo se llama desde la fila del Top (1 llamada) + su definición; Evaluar no tiene Eliminar');
+
+// 24. Ronda 3, oleadas 2+3: 401 con distinción, DB caída → 503,
+// total_paginas con catálogo vacío, CSV con objetos (ver 23b/23k) y logs
+// (contraseña con ':', decodificada corta, nivel Warning de Crow).
+ok(mainCpp.includes('r.add_header("X-Auth-Error", "token_no_configurado")') && mainCpp.includes('"Token no configurado."'), 'R3-O2 401: token no configurado -> cabecera X-Auth-Error + cuerpo distinto de "No autorizado."');
+ok(mainCpp.includes('if (dynamic_cast<const pqxx::broken_connection*>(&e) != nullptr) return respSegura(503, "DB NO DISPONIBLE");'), 'R3-O2 DB caída: broken_connection -> 503 (no el 500 genérico)');
+ok(mainCpp.includes('res["total_paginas"] = std::max(1, (total_canciones + limite - 1)'), 'R3-O2 total_paginas: catálogo vacío -> 1, no 0');
+ok(appJs.includes("res.headers.get('X-Auth-Error') === 'token_no_configurado'"), 'R3-O2 apiFetch: con token no configurado no pide la clave (sin prompt)');
+ok(mainCpp.includes("url.find(':', esquema + 3)") && !mainCpp.includes("rfind(':', arroba)"), 'R3-LOG extraerPasswordUrl: primer : tras el esquema (clave con : se tapa entera)');
+ok(mainCpp.includes('if (decod.size() >= 4) g_dbPasswordDecodificada = decod;'), 'R3-LOG decodificada corta (<4) no se guarda: no destrozar texto normal del log');
+ok(mainCpp.includes('crow::logger::setLogLevel(crow::LogLevel::Warning)'), 'R3-LOG Crow en Warning: las peticiones (URL con query) no van al log');
+
+// ---------- 25. Ronda 4, oleada 1 (Pruebas): splash, M1, M3, casos borde ----------
+// 25a. Splash: los 8 tests propuestos en la ronda 3 (el splash se
+// implementó en esa ronda pero sus tests quedaron pendientes).
+// (1) #pantalla-carga presente, con role/aria y CSS que la oculta.
+ok(idxHtml.includes('<div id="pantalla-carga" role="status" aria-label="Cargando el catálogo">'),
+  'R4 splash: #pantalla-carga presente con role="status" y aria-label');
+ok(idxHtml.includes('#pantalla-carga.oculta { display: none; }'),
+  'R4 splash: CSS #pantalla-carga.oculta { display: none; } (la clase es lo que la oculta)');
+// (7) <noscript> lo oculta.
+ok(idxHtml.includes('<noscript><style>#pantalla-carga{display:none}</style>'),
+  'R4 splash: <noscript> oculta el splash sin JavaScript');
+// (8) Sin handlers inline en el splash.
+const bloqueSplash = idxHtml.slice(idxHtml.indexOf('<div id="pantalla-carga"'), idxHtml.indexOf('<noscript>'));
+ok(bloqueSplash.length > 0 && !/on\w+\s*=/.test(bloqueSplash),
+  'R4 splash: el bloque #pantalla-carga no tiene manejadores inline (solo marca)');
+// Anclas de los 2 sitios que la ocultan: tras pintar en try, y en catch.
+ok(appJs.includes('igualarFilas();\n                ocultarSplash();') && appJs.includes("toastLectura(e); ocultarSplash(); }"),
+  'R4 splash: ocultarSplash se llama en try (tras igualarFilas) y en catch (tras el error)');
+ok((appJs.match(/ocultarSplash\(\);/g) || []).length === 2 && appJs.includes('function ocultarSplash()'),
+  'R4 splash: exactamente 2 llamadas a ocultarSplash() + su definición (ni una más, ni una menos)');
+// (2) ocultarSplash idempotente y null-guarded (función real extraída;
+// el documento se inyecta al crearla, como en 23b con mostrarErrorHttp).
+let ocultarSplashSrc;
+try {
+  ocultarSplashSrc = extraerFuncion(appJsSrc, 'ocultarSplash', 'public/app.js');
+} catch (e) {
+  console.error('FALLO DE EXTRACCIÓN (R4): ocultarSplash: ' + e.message);
+  process.exit(1);
+}
+const hacerOcultarSplash = doc => new Function('document', ocultarSplashSrc + '\nreturn ocultarSplash;')(doc)();
+const hacerDocSplash = presente => {
+  const s = new Set(); let adds = 0;
+  const el = { classList: { add: v => { adds++; s.add(v); }, remove: v => s.delete(v), contains: v => s.has(v), _adds: () => adds, _size: () => s.size } };
+  return { el, doc: { getElementById: id => (id === 'pantalla-carga' && presente ? el : null) } };
+};
+const dSp1 = hacerDocSplash(true);
+ok((() => { try { hacerOcultarSplash(dSp1.doc); return dSp1.el.classList.contains('oculta'); } catch (e) { return false; } })(),
+  'R4 splash: ocultarSplash añade .oculta al elemento presente');
+ok((() => { hacerOcultarSplash(dSp1.doc); return dSp1.el.classList._adds() === 2 && dSp1.el.classList._size() === 1; })(),
+  'R4 splash: ocultarSplash idempotente (2ª llamada no duplica la clase ni falla)');
+ok((() => { try { hacerOcultarSplash(hacerDocSplash(false).doc); return true; } catch (e) { return false; } })(),
+  'R4 splash: ocultarSplash con elemento ausente no lanza (null-guarded)');
+// (3)-(6) cargarCatalogo REAL con DOM y fetch falsos: se oculta tras OK
+// y tras error, NO con respuestas obsoletas ni antes de la recursión de
+// paginación. El sandbox ejecuta el render real (filas, colores, texto).
+let sandboxCargaSrc;
+try {
+  const srcOc = extraerFuncion(appJsSrc, 'ocultarSplash', 'public/app.js');
+  const srcCg = extraerFuncion(appJsSrc, 'cargarCatalogo', 'public/app.js');
+  const srcEs = extraerFuncion(appJsSrc, 'escapeHtml', 'public/app.js');
+  const srcTA = extraerFuncion(appJsSrc, 'textoArtistas', 'public/app.js');
+  const fnsC = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'grad'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
+  sandboxCargaSrc = [
+    'let notaColor = 0, enTransicionColor = false;',
+    'let reqActual = 0, paginaActualGlobal = 1, totalPaginasGlobal = 1, cancionesGlobal = [],',
+    '  artistasCompletos = false, catalogoListo = false, statsListas = true, rangoFiltro = null, animacionEntradaLista = true, idSeleccionadoGlobal = null;',
+    'const METRICAS = { ritmo: ["RITMO", 10], letras: ["LETRAS", 10], coro: ["CORO", 10], importancia: ["IMPORT.", 5] };',
+    'const MAP_GENEROS = { Pop: "Pop", Electronica: "Electrónica", Rap: "Rap" };',
+    'const MAP_ETIQUETAS = { Original: "Original", Edit: "Edit", Remix: "Remix" };',
+    'const API_URL = "/api/canciones";',
+    'function guardarFiltros() {}',
+    'function cargarEstadisticas() {}',
+    'function errorHttp(res, url) { const e = new Error("HTTP " + res.status + " en " + url); e.status = res.status; return e; }',
+    'function toastLectura(e) {}',
+    'function igualarFilas() {}',
+    fnsC.join('\n'),
+    srcOc, 'async ' + srcCg, srcEs, srcTA,
+    'return { cargarCatalogo };',
+  ].join('\n');
+} catch (e) {
+  console.error('FALLO DE EXTRACCIÓN (R4): sandbox cargarCatalogo: ' + e.message);
+  process.exit(1);
+}
+const hacerDocCarga = () => {
+  const els = {};
+  const el = id => els[id] || (els[id] = {
+    value: id === 'select-orden' ? 'top' : '',
+    innerHTML: '',
+    classList: (() => { const s = new Set(); let adds = 0; return {
+      add: v => { adds++; s.add(v); }, remove: v => s.delete(v),
+      toggle: (v, f) => { if (f === undefined) { if (s.has(v)) s.delete(v); else s.add(v); } else if (f) s.add(v); else s.delete(v); },
+      contains: v => s.has(v), _adds: () => adds }; })(),
+    style: {},
+  });
+  // Los elementos existen en el DOM real aunque nada los haya tocado aún
+  // (si no, leer els['pantalla-carga'] tras una respuesta obsoleta daría
+  // undefined y el test moriría en vez de fallar limpio).
+  ['pantalla-carga', 'lista_canciones', 'barra-carga', 'lista-artistas', 'input-buscar', 'select-orden', 'filtro-genero'].forEach(id => el(id));
+  return { els, doc: { getElementById: id => el(id) } };
+};
+const crearCarga = (doc, fetchFn) => new Function('document', 'fetch', sandboxCargaSrc)(doc, fetchFn);
+const CAN_A = { id: 144, titulo: 'LA FOTO DEL CARNET', artista: 'Leonardo Favio', artistas: [{ nombre: 'Leonardo Favio', rol: 'principal' }], calificacion_final: 19.6, ritmo: 10, letras: 9.6, coro: 10, importancia: 4.7, antiguedad: 1, nostalgia: 1, descubrimiento: 1, complejidad: 1, arte_visual: 1, genero: 'Pop', etiqueta: 'Original', instrumental: false, banda_sonora: false, rank_global: 1 };
+const CAN_B = { id: 678, titulo: 'Freaks', artista: 'Timmy Trumpet', artistas: [{ nombre: 'Timmy Trumpet', rol: 'principal' }, { nombre: 'Savage', rol: 'invitado' }], calificacion_final: 16.09, ritmo: 9.1, letras: 8.8, coro: 5, importancia: 3.7, antiguedad: 1, nostalgia: 1, descubrimiento: 1, complejidad: 1, arte_visual: 1, genero: 'Electronica', etiqueta: 'Edit', instrumental: false, banda_sonora: false, rank_global: 400 };
+const respOk = canciones => ({ ok: true, status: 200, json: async () => ({ total_paginas: 14, pagina_actual: 1, total_canciones: 678, canciones }) });
+const diferido = () => { let res; const p = new Promise(r => { res = r; }); return { p, res }; };
+pendientes.push((async () => {
+  const d = hacerDocCarga();
+  await crearCarga(d.doc, async () => respOk([CAN_A, CAN_B])).cargarCatalogo(1);
+  ok(d.els['pantalla-carga'].classList._adds() === 1, 'R4 splash: cargarCatalogo OK oculta el splash exactamente 1 vez');
+  ok(d.els['lista_canciones'].innerHTML.includes('LA FOTO DEL CARNET') && d.els['lista_canciones'].innerHTML.includes('Freaks'),
+    'R4 splash: tras OK, la lista pinta las canciones (el sandbox ejecuta el render real)');
+  const d2 = hacerDocCarga();
+  await crearCarga(d2.doc, async () => ({ ok: false, status: 500, json: async () => ({}) })).cargarCatalogo(1);
+  ok(d2.els['pantalla-carga'].classList._adds() === 1, 'R4 splash: cargarCatalogo con error HTTP también oculta el splash (1 vez)');
+  ok(d2.els['lista_canciones'].innerHTML.includes('No se pudo cargar el catálogo'),
+    'R4 splash: tras error HTTP, la lista muestra el mensaje de error');
+  const d2b = hacerDocCarga();
+  await crearCarga(d2b.doc, async () => { throw new Error('red caída'); }).cargarCatalogo(1);
+  ok(d2b.els['pantalla-carga'].classList._adds() === 1, 'R4 splash: fetch que rechaza (sin red) también oculta el splash (1 vez)');
+  const d3 = hacerDocCarga();
+  const def1 = diferido(), def2 = diferido();
+  const carga3 = crearCarga(d3.doc, url => (/pagina=1(&|$)/.test(url) ? def1.p : def2.p));
+  const p1 = carga3.cargarCatalogo(1);
+  const p2 = carga3.cargarCatalogo(2);
+  def1.res(respOk([CAN_A]));
+  await p1;
+  ok(d3.els['pantalla-carga'].classList._adds() === 0, 'R4 splash: respuesta obsoleta (pág. 1 tras pedir pág. 2) NO oculta el splash');
+  ok(!d3.els['lista_canciones'].innerHTML.includes('LA FOTO DEL CARNET'), 'R4 splash: respuesta obsoleta NO pinta sus filas');
+  def2.res({ ok: true, status: 200, json: async () => ({ total_paginas: 14, pagina_actual: 2, total_canciones: 678, canciones: [CAN_B] }) });
+  await p2;
+  ok(d3.els['pantalla-carga'].classList._adds() === 1, 'R4 splash: la carga vigente sí oculta el splash (1 vez en total)');
+  ok(d3.els['lista_canciones'].innerHTML.includes('Freaks') && !d3.els['lista_canciones'].innerHTML.includes('LA FOTO DEL CARNET'),
+    'R4 splash: la lista final es la de la carga vigente (pág. 2), no la obsoleta');
+  const d4 = hacerDocCarga();
+  const defA = diferido(), defB = diferido();
+  const carga4 = crearCarga(d4.doc, url => (/pagina=14(&|$)/.test(url) ? defA.p : defB.p));
+  const pRec = carga4.cargarCatalogo(14);
+  defA.res({ ok: true, status: 200, json: async () => ({ total_paginas: 13, pagina_actual: 14, total_canciones: 678, canciones: [] }) });
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+  ok(d4.els['pantalla-carga'].classList._adds() === 0, 'R4 splash: en la recursión de paginación, la llamada exterior NO oculta el splash antes de que termine la interior');
+  defB.res({ ok: true, status: 200, json: async () => ({ total_paginas: 13, pagina_actual: 13, total_canciones: 678, canciones: [CAN_B] }) });
+  await pRec;
+  ok(d4.els['pantalla-carga'].classList._adds() === 1, 'R4 splash: tras la recursión, el splash se oculta exactamente 1 vez (la carga interior)');
+  ok(d4.els['lista_canciones'].innerHTML.includes('PÁG 13 / 13'), 'R4 splash: tras la recursión, la lista muestra la pág. 13');
+})());
+
+// 25b. M1 (ronda 3): colorFila era espejo, no extraída. Ahora el bloque
+// de color REAL de cargarCatalogo se extrae de app.js y se ejecuta: si
+// alguien cambia un umbral en app.js, estos tests fallan (el espejo no
+// lo notaría). El espejo se conserva y se compara contra lo real.
+let colorFilaReal;
+try {
+  const fnsColor = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'grad'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
+  const ini = appJsSrc.indexOf('notaColor = nota; enTransicionColor = false;');
+  const finMarc = "if (nota > 0 && rank <= 10) { colorBase = '#facc15'; glow = 'rgba(250,204,21,0.7)'; }";
+  const fin = appJsSrc.indexOf(finMarc);
+  if (ini === -1 || fin === -1) throw new Error('no se encontró el bloque de color de cargarCatalogo en public/app.js');
+  const bloque = appJsSrc.slice(ini, fin + finMarc.length);
+  colorFilaReal = new Function('let notaColor = 0, enTransicionColor = false;\n' + fnsColor.join('\n')
+    + '\nfunction colorFilaReal(nota, rank) {\n' + bloque + '\nreturn colorBase;\n}\nreturn colorFilaReal;')();
+} catch (e) {
+  console.error('FALLO DE EXTRACCIÓN (R4-M1): color de fila real: ' + e.message);
+  process.exit(1);
+}
+ok(colorFilaReal(19.00, 100) === '#22c55e' && colorFilaReal(18.99, 100) !== '#22c55e',
+  'R4-M1 color REAL: 19.00 → verde pleno; 18.99 sigue en transición (el umbral es >= 19 en el código real, no en un espejo)');
+ok(colorFilaReal(18.00, 100) === '#d946ef' && colorFilaReal(17.99, 100) !== '#d946ef',
+  'R4-M1 color REAL: 18.00 → fuchsia pleno; 17.99 sigue en transición violeta→fuchsia (umbral >= 18)');
+ok(colorFilaReal(17.80, 100) === mezcla(0, '#8b5cf6', '#d946ef') && colorFilaReal(17.79, 100) !== mezcla(0, '#8b5cf6', '#d946ef'),
+  'R4-M1 color REAL: 17.80 → violeta puro (inicio de ventana del 18); 17.79 en transición cian→violeta (umbral ≥ 17.8)');
+ok(colorFilaReal(18.9, 3) === '#facc15' && colorFilaReal(0, 100) === '#6b7280' && colorFilaReal(10.05, 678) === '#22d3ee',
+  'R4-M1 color REAL: dorado solo por puesto (18.9 puesto 3), gris sin calificar, cian 10.05 puesto 678');
+ok(enOrden(appJsSrc, ['if (nota >= 19)', 'else if (nota >= 18)', 'else if (nota >= 17.8)', "grad('#22d3ee', '#8b5cf6', 17.8, 0.3)", "grad('#d946ef', '#22c55e', 19, 0.5)", "grad('#8b5cf6', '#d946ef', 18)", 'mezcla(0.9 * suave((20 - rank) / 9), colorBase, ']),
+  'R4-M1 ancla de texto: umbrales y ventanas en orden en app.js (>= 19, >= 18, >= 17.8; ventanas 0.3/0.5/0.2; mezcla Top 11-20)');
+const notasBarrido = [0, 0.01, 10.05, 16.09, 17.49, 17.5, 17.79, 17.8, 17.81, 17.99, 18, 18.49, 18.5, 18.99, 19, 19.6, 20];
+const puestosBarrido = [1, 10, 11, 15, 20, 21, 100, 678];
+let difColor = [];
+for (const n of notasBarrido) for (const r of puestosBarrido) { const a = colorFilaReal(n, r), b = colorFila(n, r); if (a !== b) difColor.push(`${n}@${r}: real=${a} espejo=${b}`); }
+ok(difColor.length === 0, `R4-M1 diferencial: color REAL vs espejo en ${notasBarrido.length * puestosBarrido.length} combinaciones nota×puesto, ${difColor.length} diferencias (${difColor.slice(0, 3).join('; ') || 'ninguna'})`);
+
+// 25c. M3 (ronda 3): los espejos de reglas de backend se duplicaban a
+// mano. Ahora los números que los espejos hardcodean se extraen de
+// main.cpp y se comparan: si el backend cambia un valor sin actualizar
+// el espejo, esto falla.
+const numCpp = re => { const m = mainCpp.match(re); return m ? Number(m[1]) : NaN; };
+ok(numCpp(/LIMITE_CUERPO = (\d+)/) === 65536, 'R4-M3 ancla numérica: LIMITE_CUERPO = 65536 en main.cpp (el espejo de 23e usa 65536)');
+ok(numCpp(/if \(f\.first >= (\d+)\)/) === 5, 'R4-M3 ancla numérica: 5 fallos de auth → 429 (el espejo de 23d usa 5)');
+ok(numCpp(/if \(\+\+f\.first > (\d+)\)/) === 120, 'R4-M3 ancla numérica: 120 lecturas/min (el espejo de 23d usa 120)');
+const minutosCpp = [...new Set([...mainCpp.matchAll(/minutes\((\d+)\)/g)].map(m => Number(m[1])))];
+ok(JSON.stringify(minutosCpp) === JSON.stringify([10, 1]), `R4-M3 ancla numérica: ventanas minutes(10) auth y minutes(1) lectura (encontradas: ${minutosCpp.join(',')})`);
+const retryCpp = [...mainCpp.matchAll(/Retry-After", "(\d+)"/g)].map(m => Number(m[1]));
+ok(JSON.stringify(retryCpp) === JSON.stringify([600, 60]), `R4-M3 ancla numérica: Retry-After 600 (auth) y 60 (lectura) (encontrados: ${retryCpp.join(',')})`);
+ok(numCpp(/std::string\(token\)\.size\(\) >= (\d+)/) === 24, 'R4-M3 ancla numérica: ADMIN_TOKEN válido con >= 24 caracteres (el espejo de 23d usa 24)');
+ok(numCpp(/titulo\.size\(\) > (\d+)/) === 200, 'R4-M3 ancla numérica: título > 200 → 400 (el espejo de 23g usa 200)');
+ok(numCpp(/buscar\.size\(\) > (\d+)/) === 100 && numCpp(/truncarUtf8\(buscar, (\d+)\)/) === 100, 'R4-M3 ancla numérica: búsqueda truncada a 100 bytes (el espejo de 23i usa 100)');
+ok(numCpp(/ConnectionPool>\(cadena_conexion, (\d+)\)/) === 5 && mainCpp.includes('timeout esperando conexion a la base (5 s)'), 'R4-M3 ancla numérica: pool de 5 conexiones, timeout 5 s (el espejo de 23j usa 5)');
+ok(numCpp(/int limite = (\d+);/) === 50, 'R4-M3 ancla numérica: página de 50 canciones (los espejos de paginación usan 50)');
+
+// 25d. Catálogo 678 (sintético: fixture 677 + canción 678 verificada en
+// vivo; el fixture NO se toca por diseño). La 678 es "Freaks" / Timmy
+// Trumpet / Electronica / Edit / 16.09 (ver REVISION.md, corrección 678).
+const S678 = { id: 678, titulo: 'Freaks', artista: 'Timmy Trumpet', artistas: [{ nombre: 'Timmy Trumpet', rol: 'principal', id: 437 }, { nombre: 'Savage', rol: 'invitado', id: 438 }], calificacion_final: 16.09, ritmo: 9.1, letras: 8.8, coro: 5, importancia: 3.7, antiguedad: true, nostalgia: true, descubrimiento: true, complejidad: true, arte_visual: 1, genero: 'Electronica', etiqueta: 'Edit', instrumental: false, banda_sonora: false };
+if (tieneDatos) {
+  const C678 = [...C, S678];
+  ok(C678.length === 678, '[datos reales] catálogo 678: 677 del fixture + 678 sintética');
+  ok(Math.ceil(678 / 50) === 14 && 678 - 13 * 50 === 28, 'R4 678: 14 páginas, última con 28 canciones');
+  const top10_678 = [...C678].sort(cmp).slice(0, 10).map(c => c.id);
+  ok(JSON.stringify(top10_678) === JSON.stringify([144, 167, 213, 116, 307, 606, 348, 29, 399, 145]),
+    `[datos reales] Top 10 global intacto con 678: ${top10_678.join(',')}`);
+  const rank678 = [...C678].sort(cmp).findIndex(c => c.id === 678) + 1;
+  ok(rank678 > 10, `[datos reales] puesto global de la 678 = ${rank678} (fuera del Top 10, no dorada)`);
+  ok(colorFila(16.09, rank678) === '#22d3ee', 'R4 678: 16.09 fuera de ventanas = cian pleno');
+  const bins678 = { 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 };
+  for (const c of C678) bins678[binSql(c.calificacion_final)]++;
+  ok(JSON.stringify(bins678) === JSON.stringify({ 'menos-10': 0, '10-12': 22, '12-14': 79, '14-16': 157, '16-18': 202, '18-19': 142, '19-20': 76, 'sin_calificar': 0 }),
+    '[datos reales] histograma con 678: 22/79/157/202/142/76 (bin 16-18 201→202 por la 678, igual que en vivo; el fixture de 677 sigue en 201)');
+} else skip('catálogo 678 / Top 10 / histograma 202 con datos reales (sin public/datos-reales.json)');
+
+// 25e. Artistas: textoArtistas REAL extraído (como claveCancion en 23c);
+// 2 principales; productores puros 0/0; corrección 678.
+let textoArtistasReal;
+try {
+  const srcTA = extraerFuncion(appJsSrc, 'textoArtistas', 'public/app.js');
+  textoArtistasReal = new Function(srcTA + '\nreturn textoArtistas;')();
+} catch (e) {
+  console.error('FALLO DE EXTRACCIÓN (R4): textoArtistas: ' + e.message);
+  process.exit(1);
+}
+const casosArtistas = [F531, F662, F101, F232, F670, S678, { artista: 'Shakira', artistas: [{ nombre: 'Shakira', rol: 'principal' }] }];
+const difArt = casosArtistas.filter(c => textoArtistasReal(c) !== textoArtistas(c));
+ok(difArt.length === 0, `R4 artistas: textoArtistas REAL vs copia del harness en ${casosArtistas.length} casos (531, 662, 101, 232, 670, 678, Shakira), ${difArt.length} diferencias`);
+ok(textoArtistasReal(S678) === 'Timmy Trumpet ft. Savage', 'R4 artistas 678: "Timmy Trumpet ft. Savage" (principal = a quien se acredita la canción, sea productor o no; Savage invitado por decisión de Nova 2026-11-16)');
+ok(textoArtistasReal({ artista: 'Timmy Trumpet', artistas: [{ nombre: 'Timmy Trumpet', rol: 'productor' }] }) === 'Timmy Trumpet',
+  'R4 artistas: sin principal (solo productor) se usa la columna artista (el productor no se acredita como principal)');
+const artistasApi = (artistas, links) => artistas.map(a => {
+  const ls = links.filter(l => l.artista_id === a.id);
+  return { nombre: a.nombre, canciones: new Set(ls.map(l => l.cancion_id)).size, principales: new Set(ls.filter(l => l.rol === 'principal').map(l => l.cancion_id)).size };
+});
+const api678 = artistasApi(
+  [{ id: 1, nombre: 'RedOne' }, { id: 2, nombre: 'Danja' }, { id: 3, nombre: 'Alex da Kid' }, { id: 437, nombre: 'Timmy Trumpet' }, { id: 438, nombre: 'Savage' }],
+  [{ cancion_id: 678, artista_id: 437, rol: 'principal' }, { cancion_id: 678, artista_id: 438, rol: 'invitado' }]);
+ok(api678.find(a => a.nombre === 'RedOne').canciones === 0 && api678.find(a => a.nombre === 'RedOne').principales === 0
+  && api678.find(a => a.nombre === 'Danja').canciones === 0 && api678.find(a => a.nombre === 'Alex da Kid').canciones === 0,
+  'R4 artistas: los 3 productores puros salen con 0/0 aunque no tengan ninguna fila (LEFT JOIN, sin HAVING)');
+ok(api678.find(a => a.nombre === 'Timmy Trumpet').canciones === 1 && api678.find(a => a.nombre === 'Timmy Trumpet').principales === 1
+  && api678.find(a => a.nombre === 'Savage').canciones === 1 && api678.find(a => a.nombre === 'Savage').principales === 0,
+  'R4 artistas 678: Timmy Trumpet 1/1 (principal), Savage 1/0 (invitado cuenta como canción, no como principal)');
+const sql678 = fs.readFileSync(BASE + 'correccion-678.sql', 'utf8');
+ok(sql678.includes("SET nombre = 'Timmy Trumpet'") && sql678.includes("WHERE id = 437 AND nombre = 'Timmy trumpet'"),
+  "R4 678 SQL: artista 437 'Timmy trumpet' → 'Timmy Trumpet' con guarda");
+ok(sql678.includes("SET artista = 'Timmy Trumpet'") && sql678.includes("WHERE id = 678 AND artista = 'Timmy trumpet'"),
+  "R4 678 SQL: columna canciones.artista de la 678 → 'Timmy Trumpet' con guarda");
+const lineasSql678 = sql678.split('\n').filter(l => l.trim() !== '' && !l.trim().startsWith('--'));
+ok(lineasSql678.length > 0 && lineasSql678.every(l => !l.includes('438') && !/rol/i.test(l)) && (sql678.match(/^UPDATE /gm) || []).length === 2,
+  'R4 678 SQL: ninguna sentencia toca a Savage (438) ni ningún rol (se queda invitado por decisión de Nova); exactamente 2 UPDATEs');
+
+// 25f. UTF-8: búsqueda cirílica y truncarUtf8 con cirílico y emoji.
+ok(claveCancion('Скриптонит', 'X') === claveCancion('скриптонит', 'X') && claveCancion('Скриптонит', 'X') !== claveCancion('Скриптонит', 'Y'),
+  'R4 UTF-8: claveCancion con cirílico (Скриптонит/скриптонит → misma clave; cambia el artista → distinta)');
+ok(claveCancion('Canción', 'José') === claveCancion('CANCIÓN', 'josé'),
+  'R4 UTF-8: claveCancion con acentos (Canción/José insensible a mayúsculas)');
+ok(coincideBusqueda({ titulo: 'X', artistas: [{ nombre: 'Скриптонит' }] }, 'скриптонит') && coincideBusqueda({ titulo: 'X', artistas: [{ nombre: 'Скриптонит' }] }, 'скрипт'),
+  'R4 UTF-8: la búsqueda encuentra "Скриптонит" por "скриптонит" y por "скрипт" (toLowerCase cirílico)');
+ok(truncarUtf8('Скриптонит'.repeat(6), 100) === 'Скриптонит'.repeat(5),
+  'R4 UTF-8: 60 caracteres cirílicos (120 bytes) → 50 caracteres (100 bytes exactos, sin partir carácter)');
+ok(truncarUtf8('🎵'.repeat(30), 100) === '🎵'.repeat(25),
+  'R4 UTF-8: 30 emojis 🎵 (120 bytes) → 25 emojis (100 bytes exactos)');
+ok(truncarUtf8('a'.repeat(98) + '🎵', 100) === 'a'.repeat(98) && truncarUtf8('a'.repeat(96) + '🎵', 100) === 'a'.repeat(96) + '🎵',
+  'R4 UTF-8: emoji de 4 bytes en el corte se corta antes (98 a); si cabe exacto en 100 bytes se queda (96 a + 🎵)');
+ok(truncarUtf8('a'.repeat(99) + 'С', 100) === 'a'.repeat(99) && truncarUtf8('é'.repeat(50), 100) === 'é'.repeat(50),
+  'R4 UTF-8: cirílico de 2 bytes en el corte se corta antes (99 a); 50 é = 100 bytes exactos se quedan');
+
+// 25g. Título de 200 caracteres exactos: B1 (ronda 3) — el frontend
+// cuenta caracteres (JS .length, maxlength=200) y el backend cuenta
+// bytes (std::string .size()). Con ASCII coinciden; con multibyte no.
+// Se ancla la divergencia tal como está, sin cambiarla.
+ok((idxHtml.match(/maxlength="200"/g) || []).length === 4 && (appJs.match(/maxlength="200"/g) || []).length === 4,
+  'R4 título 200: maxlength="200" en 4 campos de index.html (título, artista, invitados, productor) y 4 del modal de editar');
+const titulo200e = 'é'.repeat(200);
+const validarTituloArtistaBytes = (t, a) => { if (!t || !a) return 'Campos vacios.'; if (Buffer.byteLength(t, 'utf8') > 200 || Buffer.byteLength(a, 'utf8') > 200) return 'Titulo o artista demasiado largo.'; return ''; };
+ok(titulo200e.length === 200 && Buffer.byteLength(titulo200e, 'utf8') === 400
+  && validarTituloArtista(titulo200e, 'X') === '' && validarTituloArtistaBytes(titulo200e, 'X') === 'Titulo o artista demasiado largo.',
+  'R4 B1: 200 é = 200 caracteres (frontend: pasa) pero 400 bytes (backend: rechaza) — divergencia bytes/caracteres documentada, sin cambio');
+ok(validarTituloArtistaBytes('x'.repeat(200), 'y'.repeat(200)) === '' && validarTituloArtistaBytes('x'.repeat(201), 'Y') === 'Titulo o artista demasiado largo.',
+  'R4 B1: con ASCII, frontend y backend coinciden (200 pasa, 201 rechaza en ambos)');
+
+// 25h. Nota .xx5 en ambos sentidos: el total exacto termina en 5 en la
+// tercera decimal; el double lo redondea arriba o abajo según su
+// representación binaria. La 678 cae arriba; la 17 cae abajo.
+const C17 = { ritmo: 9, letras: 9.3, coro: 9, importancia: 4, antiguedad: false, nostalgia: false, descubrimiento: true, complejidad: false, arte_visual: 1 };
+ok(total1000(C17) === 15075 && calc(C17).toPrecision(17) === '15.074999999999999' && redondeoExacto(15075) === 15.08,
+  'R4 .xx5 abajo: ID 17 exacto 15.075, suma double 15.074999999999999 (por debajo) → mitad-arriba sería 15.08');
+ok(Math.round(calc(C17) * 100) / 100 === 15.08,
+  'R4 .xx5 abajo: la recomputación con double de la 17 da 15.08, no 15.07 — el guardado histórico difiere de ambas recomputaciones (una de las 59 de H3)');
+ok(total1000(S678) === 16085 && calc(S678).toPrecision(17) === '16.085000000000001' && Math.round(calc(S678) * 100) / 100 === 16.09 && redondeoExacto(16085) === 16.09,
+  'R4 .xx5 arriba: 678 exacto 16.085, suma double 16.085000000000001 (por encima) → guardado 16.09 (mitad-arriba, sin desvío)');
+if (tieneDatos) {
+  let xx5up = 0, xx5down = 0, desvDobleAbajo = 0, desvDobleArriba = 0;
+  for (const c of C) {
+    if (!c.calificacion_final) continue;
+    const t = total1000(c);
+    if (t % 10 !== 5) continue;
+    const hu = Math.floor((t + 5) / 10) / 100;
+    if (Math.abs(c.calificacion_final - hu) < 1e-9) xx5up++;
+    else if (Math.abs(c.calificacion_final - (hu - 0.01)) < 1e-9) xx5down++;
+    const dDoble = Math.round(calc(c) * 100) / 100 - c.calificacion_final;
+    if (dDoble > 0.001) desvDobleAbajo++;
+    else if (dDoble < -0.001) desvDobleArriba++;
+  }
+  ok(xx5up + xx5down === 353 && xx5up === 247 && xx5down === 106,
+    `[datos reales] .xx5: 353 totales con tercer decimal 5 — ${xx5up} guardadas en mitad-arriba y ${xx5down} guardadas 0.01 por debajo (redondeo binario del double)`);
+  ok(desvDobleAbajo === 59 && desvDobleArriba === 0,
+    `[datos reales] .xx5: 59 filas difieren de la recomputación con double (todas 0.01 por debajo, todas .xx5; H3 de la ronda 3)`);
+  ok(C.find(c => c.id === 17).calificacion_final === 15.07, '[datos reales] ID 17 guardada en 15.07 (mitad-arriba − 0.01, caso "abajo" de referencia)');
+} else skip('.xx5 conteos 353/247/106/59 con datos reales (sin public/datos-reales.json)');
+
+// 25i. Catálogo vacío (total_paginas 1) e histograma con bins vacíos.
+const pagVacia = paginaDe(1, 0, []);
+ok(pagVacia.total_paginas === 1 && pagVacia.pagina_actual === 1 && pagVacia.canciones.length === 0,
+  'R4 vacío: total_paginas 1 con 0 canciones (backend std::max(1, …) desde ronda 3; el espejo de la sección 16 usaba la fórmula vieja sin max)');
+ok(Math.max(1, Math.ceil(0 / 50)) === 1 && Math.max(1, Math.ceil(677 / 50)) === 14 && Math.max(1, Math.ceil(678 / 50)) === 14,
+  'R4 vacío/678: total_paginas = max(1, ceil(total/50)): 0→1, 677→14, 678→14');
+const barraHist = (h, max, totalHist) => ({ pct: totalHist ? Math.round(h.total / totalHist * 100) : 0, ancho: Math.round(h.total / max * 100) });
+const histParcial = [{ rango: '19-20', total: 5 }, { rango: '16-18', total: 0 }, { rango: '10-12', total: 0 }];
+const maxHist = Math.max(1, ...histParcial.map(h => h.total));
+const totalHistParcial = histParcial.reduce((a, h) => a + h.total, 0);
+ok(histParcial.every(h => { const b = barraHist(h, maxHist, totalHistParcial); return Number.isFinite(b.pct) && Number.isFinite(b.ancho) && b.ancho >= 0 && b.ancho <= 100; }),
+  'R4 histograma: bins vacíos junto a uno no vacío → pct y ancho finitos (0% sin NaN; max con piso 1 como en app.js)');
+ok(barraHist({ rango: '19-20', total: 5 }, maxHist, totalHistParcial).ancho === 100 && barraHist({ rango: '16-18', total: 0 }, maxHist, totalHistParcial).ancho === 0 && barraHist({ rango: '16-18', total: 0 }, maxHist, totalHistParcial).pct === 0,
+  'R4 histograma: bin lleno 100% de ancho, bin vacío 0% de ancho y 0% de canciones');
+ok(appJs.includes('const max = Math.max(1, ...histograma.map(h => h.total));') && appJs.includes("|| '<p class=\"text-gray-400 text-xs\">Sin datos todavía.</p>'"),
+  'R4 histograma: app.js usa max con piso 1 (nunca divide por 0) y muestra "Sin datos todavía." con 0 filas del endpoint (GROUP BY sin filas con catálogo vacío)');
+if (tieneDatos) {
+  ok(statsDe(C).mediana === 16.86, `[datos reales] statsDe mediana real: ${statsDe(C).mediana} (antes era 0 hardcodeada; PERCENTILE_CONT 0.5 del endpoint)`);
+  ok(statsDe([{ calificacion_final: 19.00 }]).mediana === 19.00 && statsDe([]).mediana === 0, 'R4 statsDe: mediana de 1 canción = su nota; de 0 canciones = 0');
+} else skip('statsDe mediana real con datos reales (sin public/datos-reales.json)');
+
+Promise.all(pendientes).then(() => {
+  console.log(`\n${pasadas} PASS, ${fallos} FAIL, ${saltadas} SKIP${tieneDatos ? '' : ' (sin datos reales: solo [invariante])'}`);
+  console.log(fallos === 0 ? 'TODO OK' : `${fallos} FALLOS`);
+  process.exit(fallos === 0 ? 0 : 1);
+});
