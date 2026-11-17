@@ -186,7 +186,7 @@
         function pintarSlider(id) {
             const el = document.getElementById(id);
             const pct = (parseFloat(el.value) - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100;
-            const color = getComputedStyle(el).getPropertyValue('--sc').trim() || '#d946ef';
+            const color = getComputedStyle(el).getPropertyValue('--sc').trim() || '#0e7490';
             el.style.background = `linear-gradient(90deg, ${color} ${pct}%, #0f1a36 ${pct}%)`;
             return pct;
         }
@@ -322,14 +322,6 @@
         const MAP_GENEROS = Object.fromEntries(GENEROS);
         const MAP_ETIQUETAS = Object.fromEntries(ETIQUETAS);
 
-        // COLORES (L8, auditoría ronda 1): funciones de color a nivel de
-        // módulo, una sola definición, con los mismos nombres y el mismo
-        // comportamiento que tenían dentro de cargarCatalogo (el harness las
-        // extrae por nombre). `grad` cerraba sobre la nota y el flag de
-        // transición de la fila en curso: ahora los lee/escribe en
-        // `notaColor` / `enTransicionColor`, que cargarCatalogo fija antes
-        // de cada fila.
-        let notaColor = 0, enTransicionColor = false;
         // Mezcla en HSL, no en RGB: en RGB el promedio de dos colores casi
         // opuestos (fuchsia->verde) cae en un gris de 24% de saturacion.
         // En HSL el tono viaja por el camino mas corto y la saturacion se
@@ -373,12 +365,62 @@
         // Sin ella la rampa lineal se siente mecanica; con ella el fundido
         // se ve natural.
         function suave(t) { return t * t * (3 - 2 * t); }
-        function grad(base, sig, umbral, ancho = 0.2) { // 0% al entrar en la ventana, 90% en el umbral
-            if (notaColor < umbral - ancho || notaColor >= umbral) return null;
-            const t = (notaColor - (umbral - ancho)) / ancho;
-            enTransicionColor = true;
-            return mezcla(0.9 * suave(t), base, sig);
-        }
+// PALETA G (elegida por Nova 2026-11-16 23:36, "Excelente. Aplícala
+// toda"; reemplaza la F): secuencia espectral Dorado → Verde →
+// Turquesa → Azul → Violeta, tonos en orden alrededor de la rueda
+// (47° → 150° → 180° → 220° → 270°), transiciones cortas.
+// Top 10 dorado #facc15 (solo por puesto global, sin requisito de nota);
+// GOD ≥19 verde; 18–19 turquesa; 17.8–18 azul;
+// banda baja (<17.8) violeta. Umbrales absolutos, sin cambio.
+// Tonos: violeta 270°, azul 220°, turquesa 180°, verde 150°. S fija 0.85.
+// Brillo INVERTIDO (oscuro = nota alta) por BISECCIÓN: para cada nota se
+// fija el tono por rampa (HSL, camino más corto, sin desaturar) y se busca
+// por bisección la luz L (S fija 0.85) cuya luminancia relativa Y sea el
+// objetivo lineal Y 0.48 (10.05) → 0.21 (19.60), pendiente −0.02827/nota
+// (G oscurecida: Y0 0.48, pendiente 0.27; la F era 0.40 → 0.17).
+// Rampas 0–90% con smoothstep, ventanas 17.5–17.8 (violeta→azul),
+// 17.8–18 (azul→turquesa), 18.5–19 (turquesa→verde).
+// Glow GOD variable POR CALIFICACIÓN (decisión Nova 20:40, solo GOD; las
+// demás bandas mantienen su glow FIJO por banda): alfa 0.45 en 19.00 →
+// 0.60 en 19.60, lineal; siempre por debajo del dorado (0.70).
+// Jerarquía de glow: dorado 0.70 (halo animado, el más fuerte, intacto) >
+// GOD 0.45–0.60 > turquesa 0.40 > azul 0.35 > violeta 0.30.
+// El dorado Top 10 MANTIENE su gran brillo característico; no se toca.
+function luminanciaRelativa(r, g, b) {
+    const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function yObjetivo(nota) {
+    return 0.48 - 0.27 * Math.max(0, Math.min(1, (nota - 10.05) / 9.55));
+}
+function tonoPorNota(nota) {
+    if (nota < 17.5) return 270;
+    if (nota < 17.8) return 270 + (220 - 270) * 0.9 * suave((nota - 17.5) / 0.3);
+    if (nota < 18) return 220 - (220 - 180) * 0.9 * suave((nota - 17.8) / 0.2);
+    if (nota < 18.5) return 180;
+    if (nota < 19) return 180 - (180 - 150) * 0.9 * suave((nota - 18.5) / 0.5);
+    return 150;
+}
+function colorPorNota(nota) {
+    const h = tonoPorNota(nota), y = yObjetivo(nota);
+    let lo = 0.02, hi = 0.98;
+    // 60 iteraciones (la F usaba 50): con 50 el intervalo final
+    // (8.5e-16, ~15 ulp en L≈0.3) NO converge del todo y el punto medio
+    // cae del lado equivocado de un borde de redondeo de canal que está
+    // a <1e-15 del cruce real — 11 de 14 muestras salen 1 punto bajas
+    // (p. ej. GOD 19.00 #0c9651 en vez de #0c9751, y 19.00/19.10
+    // colisionan). Con 60 el intervalo es <1 ulp (convergencia total)
+    // y el resultado es estable: verificado 14/14 para 54–200 iteraciones.
+    for (let i = 0; i < 60; i++) {
+        const mid = (lo + hi) / 2;
+        const [r, g, b] = hslARgb(h, 0.85, mid);
+        if (luminanciaRelativa(r, g, b) < y) lo = mid; else hi = mid;
+    }
+    return '#' + hslARgb(h, 0.85, (lo + hi) / 2).map(v => v.toString(16).padStart(2, '0')).join('');
+}
+function alfaGlowGod(nota) {
+    return 0.45 + (0.60 - 0.45) * Math.max(0, Math.min(1, (nota - 19) / 0.6));
+}
         const METRICAS = { ritmo: ['RITMO', 10], letras: ['LETRAS', 10], coro: ['CORO', 10], importancia: ['IMPORT.', 5] };
         const CHIP = 'flex-shrink-0 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap min-h-[44px] '; // min-h 44px: objetivo táctil (auditoría G, ronda 2; antes ~30px)
         const CHIP_ON = 'bg-sky-900 text-sky-100 border-sky-400', CHIP_OFF = 'bg-[#0f1a36] text-gray-300 border-sky-700 hover:border-sky-400 hover:shadow-[0_0_10px_rgba(56,189,248,0.4)]';
@@ -422,7 +464,7 @@
                 const { histograma } = await res.json();
                 const max = Math.max(1, ...histograma.map(h => h.total));
                 const totalHist = histograma.reduce((a, h) => a + h.total, 0);
-                const colorBarra = {'10-12': '#22d3ee', '12-14': '#22d3ee', '14-16': '#22d3ee', '16-18': 'linear-gradient(90deg,#22d3ee,#8b5cf6)', '18-19': '#d946ef', '19-20': '#22c55e', 'sin_calificar': '#6b7280', 'menos-10': '#22d3ee'};
+                const colorBarra = {'10-12': colorPorNota(11), '12-14': colorPorNota(13), '14-16': colorPorNota(15), '16-17.8': colorPorNota(16.9), '17.8-18': colorPorNota(17.9), '18-19': colorPorNota(18.5), '19-20': colorPorNota(19.5), 'sin_calificar': '#6b7280', 'menos-10': colorPorNota(9)};
                 el.innerHTML = histograma.map(h => { const etiqueta = h.rango === 'sin_calificar' ? 'Sin calificar' : h.rango === 'menos-10' ? 'Menos de 10' : h.rango; const pct = totalHist ? Math.round(h.total / totalHist * 100) : 0; return `<button onclick="filtrarRango('${h.rango}')" class="w-full text-left min-h-[44px] flex flex-col justify-center ${h.rango === rangoActivo ? 'rango-activo' : ''}"><div class="flex justify-between gap-2 text-xs"><span class="text-gray-200">${etiqueta}</span><span class="text-gray-400">${h.total} canc. · ${pct}%</span></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 rounded" style="width:${Math.round(h.total / max * 100)}%;background:${colorBarra[h.rango] || '#22d3ee'}"></div></div></button>`; }).join('') || '<p class="text-gray-400 text-xs">Sin datos todavía.</p>';
             } catch (e) { console.error('[Evaluador] cargarHistograma:', e); toastLectura(e); el.innerHTML = '<p class="text-red-400 text-xs">No se pudo cargar el histograma.</p><button onclick="cargarHistograma()" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button>'; }
         }
@@ -638,37 +680,34 @@
                     const valor = metrica ? c[orden] : c.calificacion_final;
                     let p = c.calificacion_final > 0 ? (valor ?? 0).toFixed(2) : "N/A"; // ?? 0: si una metrica es null con nota > 0 (dato inconsistente), antes rompia todo el catalogo
 
-                    // COLORES (cerrados por el usuario): Top 10 dorado, GOD ≥19 verde,
-                    // ≥18 fuchsia, ≥17.8 violeta, resto cian. Degradado 0-90 con
-                    // curva suave: cada ventana empieza en el color puro de la
-                    // categoria (0% del siguiente) y sube hasta 90% en el umbral,
-                    // con smoothstep (despacio al principio y al final, mas
-                    // rapido en medio), asi no hay saltos al entrar ni en los
-                                        // umbrales. Ventanas: 0.3 antes de 17.8 (17.5-17.8), 0.5 antes de 19 y
-                    // 0.2 antes de 18 (el umbral anterior esta a solo 0.2).
-                    // Decision 2026-11-14: el usuario pidio transiciones mas
-                    // naturales, del 0 al 90%, con la ventana que hiciera falta
-                    // ("sin limites"). Decision 2026-11-15: 17.00 fue una prueba;
-                                        // el valor cerrado es 17.50, ancho 0.3, para premiar lo mejor.
-                    // TODA la fila se ilumina, no solo la cajita de la nota. Sin texto
-                    // de distincion: el color destaca solo.
+                    // COLORES — PALETA G (elegida por Nova 2026-11-16 23:36,
+                    // reemplaza la F): Top 10 dorado (solo por puesto
+                    // global), GOD ≥19 verde, 18–19 turquesa, 17.8–18 azul,
+                    // resto violeta. Brillo INVERTIDO (oscuro = nota alta)
+                    // por bisección contra Y lineal 0.48→0.21; transiciones
+                    // vívidas por HSL (nunca por el gris, nunca pálido).
+                    // Rampas 0–90% con smoothstep: 17.5–17.8
+                    // (violeta→azul), 17.8–18 (azul→turquesa), 18.5–19
+                    // (turquesa→verde). El glow GOD varía POR CALIFICACIÓN
+                    // (0.45 en 19.00 → 0.60 en 19.60), solo GOD; las demás
+                    // bandas mantienen su glow FIJO (turquesa 0.40, azul
+                    // 0.35, violeta 0.30), siempre por debajo del dorado
+                    // (0.70, halo animado, intacto). TODA la fila se ilumina.
                     const nota = c.calificacion_final;
                     const rank = c.rank_global || (rankingInicio + index + 1); // TOP GLOBAL: el puesto es el del ranking de todas las canciones por calificacion, no el de la pagina, el filtro ni el orden actual
-                    // Funciones de color a nivel de módulo (L8): se fija la
-                    // nota de la fila en curso para que grad() la lea.
-                    notaColor = nota; enTransicionColor = false;
+                    // INICIO-COLOR-G
                     let enTransicion = false; // la fila esta en una ventana de degradado
-                    // suave() y grad() viven a nivel de módulo (L8); grad()
-                    // marca enTransicionColor cuando la nota cae en ventana.
-                    let colorBase = '#22d3ee', glow = 'rgba(34,211,238,0.35)';
+                    let colorBase = '#1d4ed8', glow = 'rgba(29,78,216,0.30)';
+                    let alfaGlow = 0.30;
                     if (nota <= 0) colorBase = '#6b7280'; // P5: sin calificar, gris también en insignia y puntos
-                    if (nota >= 19) { colorBase = '#22c55e'; glow = 'rgba(34,197,94,0.55)'; }
-                    else if (nota >= 18) { colorBase = '#d946ef'; glow = 'rgba(217,70,239,0.5)'; }
-                    else if (nota >= 17.8) { colorBase = '#8b5cf6'; glow = 'rgba(139,92,246,0.45)'; }
-                    else if (nota > 0) { const g = grad('#22d3ee', '#8b5cf6', 17.8, 0.3); if (g) colorBase = g; } // 17.5-17.8: cian -> violeta
-                    { const g = grad('#d946ef', '#22c55e', 19, 0.5); if (g) colorBase = g; } // 18.5-19: fuchsia -> verde
-                    { const g = grad('#8b5cf6', '#d946ef', 18); if (g) colorBase = g; } // 17.8-18: violeta -> fuchsia
-                    if (enTransicionColor) enTransicion = true;
+                    else {
+                        colorBase = colorPorNota(nota);
+                        if (nota >= 19) alfaGlow = alfaGlowGod(nota);
+                        else if (nota >= 18) alfaGlow = 0.40;
+                        else if (nota >= 17.8) alfaGlow = 0.35;
+                        else alfaGlow = 0.30;
+                        enTransicion = (nota >= 17.5 && nota < 18) || (nota >= 18.5 && nota < 19);
+                    }
                     // Dorado por puesto GLOBAL, sin importar la nota (decisión del
                     // usuario 2026-11-13 19:19 CST): el Top es el de todas las
                     // canciones por calificacion. Una cancion es dorada si esta
@@ -679,14 +718,14 @@
                     // P5: el dorado por puesto y la mezcla 11-20 solo valen
                     // con nota > 0; sin calificar, la fila queda gris.
                     if (nota > 0 && rank > 10 && rank <= 20) { colorBase = mezcla(0.9 * suave((20 - rank) / 9), colorBase, '#facc15'); enTransicion = true; }
+                    // El brillo sigue al color final con el alfa de su banda
+                    // (Top 10 mayor, luego GOD variable, turquesa, azul, violeta).
+                    glow = rgbaDesde(colorBase, alfaGlow);
                     if (nota > 0 && rank <= 10) { colorBase = '#facc15'; glow = 'rgba(250,204,21,0.7)'; }
-                    // (2) En transicion el brillo es el del propio color mezclado,
-                    // no el de la categoria de origen: asi el halo refuerza lo
-                    // que se ve. (3) El tinte de fondo es mas fuerte en transicion
-                    // (0.33 en vez de 0.20) para que no se lave sobre el negro.
-                    // Antes `${colorBase}33` era CSS invalido cuando colorBase
-                    // venia como "rgb(...)" y la fila perdia el tinte por completo.
-                    if (enTransicion && !(rank <= 10)) glow = rgbaDesde(colorBase, 0.6);
+                    // El tinte de fondo es mas fuerte en transicion (0.33 en vez
+                    // de 0.20) para que no se lave sobre el negro. Antes
+                    // `${colorBase}33` era CSS invalido cuando colorBase venia
+                    // como "rgb(...)" y la fila perdia el tinte por completo.
                     const cGlow = nota > 0
                         ? `border-color:${colorBase};background:linear-gradient(90deg, ${rgbaDesde(colorBase, enTransicion ? 0.33 : 0.2)}, #040b1a);box-shadow:0 0 18px ${glow}, inset 0 0 18px ${glow}`
                         : "border-color:#1f2937;opacity:0.6";

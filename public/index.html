@@ -83,9 +83,9 @@
             background-color: #040b1a;
             background-image:
                 radial-gradient(ellipse 80% 45% at 50% -10%, rgba(34,211,238,0.14), transparent 60%),
-                radial-gradient(ellipse 60% 40% at 85% 0%, rgba(255,46,166,0.08), transparent 60%),
-                radial-gradient(ellipse 50% 35% at 10% 0%, rgba(255,122,24,0.06), transparent 60%),
-                radial-gradient(ellipse 70% 40% at 50% 110%, rgba(255,46,166,0.06), transparent 60%),
+                radial-gradient(ellipse 60% 40% at 85% 0%, rgba(250,204,21,0.08), transparent 60%),
+                radial-gradient(ellipse 50% 35% at 10% 0%, rgba(84,136,241,0.06), transparent 60%),
+                radial-gradient(ellipse 70% 40% at 50% 110%, rgba(177,110,243,0.06), transparent 60%),
                 linear-gradient(rgba(56,189,248,0.07) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(56,189,248,0.07) 1px, transparent 1px);
             background-size: auto, auto, auto, auto, 44px 44px, 44px 44px;
@@ -96,43 +96,45 @@
         @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
         .active-song .row-acciones { display: flex; }
         .active-song {
-            border: 2px solid #ff2e88 !important; /* 2px como las filas (border-2) desde el cambio de contornos; con 1px la fila activa se veia mas delgada que las demas */
-            box-shadow: 0 0 15px rgba(255, 46, 136, 0.5);
+            border: 2px solid #5488f1 !important; /* 2px como las filas (border-2) desde el cambio de contornos; con 1px la fila activa se veia mas delgada que las demas */
+            box-shadow: 0 0 15px rgba(84,136,241,0.5);
             background-color: #0e1e3d !important;
         }
-        /* PALETA HIBRIDA (decision del usuario 2026-11-13 10:19 CST):
-           brillos Synthwave, fondo y zona Guardar calificacion Atardecer
-           neon, lo demas Ciberpunk. Las categorias de las canciones y los
-           colores por criterio NO cambian. */
+        /* PALETA G ESPECTRAL (elegida por Nova 2026-11-16 23:36, "Excelente.
+           Aplícala toda"; reemplaza la PALETA HIBRIDA del 2026-11-13):
+           secuencia espectral Dorado → Verde → Turquesa → Azul → Violeta
+           en fondo (#040b1a), paneles (#0b1a33), pestañas y lavados; las
+           filas usan colorPorNota (app.js) con la misma secuencia. */
         /* (6) Entrada escalonada de las filas; (8) linea degradada bajo el encabezado. */
         @keyframes entradaFila { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         .cancion-row { animation: entradaFila 0.35s ease-out both; }
         .cancion-row.sin-animacion { animation: none; }
         @keyframes deslizarDegradado { from { background-position: 0% 0; } to { background-position: 200% 0; } }
-        .linea-atardecer { background: linear-gradient(90deg, #22d3ee, #ff2ea6, #ff7a18, #22d3ee); background-size: 200% 100%; animation: deslizarDegradado 6s linear infinite; box-shadow: 0 0 12px rgba(255,46,166,0.5); }
+        .linea-atardecer { background: linear-gradient(90deg, #facc15, #0d98a5, #5488f1, #b16ef3, #facc15); background-size: 200% 100%; animation: deslizarDegradado 6s linear infinite; box-shadow: 0 0 12px rgba(84,136,241,0.5); }
         /* Color propio por seccion en la pestaña activa (decision 2026-11-13 12:05). */
         .tab-top { background: linear-gradient(90deg, #fbbf24, #f59e0b); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(251,191,36,0.55); transform: scale(1.04); }
-        .tab-rub { background: linear-gradient(90deg, #e879f9, #d946ef); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(217,70,239,0.55); transform: scale(1.04); }
-        .tab-reg { background: linear-gradient(90deg, #22d3ee, #06b6d4); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(34,211,238,0.55); transform: scale(1.04); }
-        .tab-gra { background: linear-gradient(90deg, #a78bfa, #8b5cf6); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(139,92,246,0.55); transform: scale(1.04); }
+        .tab-rub { background: linear-gradient(90deg, #0d98a5, #0c9a9a); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(13,152,165,0.55); transform: scale(1.04); }
+        .tab-reg { background: linear-gradient(90deg, #5488f1, #3b82f6); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(84,136,241,0.55); transform: scale(1.04); }
+        .tab-gra { background: linear-gradient(90deg, #b16ef3, #8b5cf6); color: #000; font-weight: 700; box-shadow: 0 0 18px rgba(177,110,243,0.55); transform: scale(1.04); }
         [role="tablist"] button, nav a { transition: background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease, color 0.25s ease; }
-        .titulo-neon { text-shadow: 0 0 16px rgba(0,229,255,0.9), 0 0 44px rgba(255,46,136,0.6), 0 0 80px rgba(255,46,136,0.35); }
+        .titulo-neon { text-shadow: 0 0 16px rgba(13,152,165,0.9), 0 0 44px rgba(84,136,241,0.6), 0 0 80px rgba(177,110,243,0.35); }
         /* Brillo en cada titulo (decision del usuario 2026-11-13 11:04 CST,
            como el titulo de la imagen del mockup Synthwave). */
         .brillo-titulo { text-shadow: 0 0 8px rgba(56,189,248,0.75), 0 0 22px rgba(56,189,248,0.35); }
         .brillo-titulo-amarillo { text-shadow: 0 0 8px rgba(255,211,25,0.8), 0 0 24px rgba(255,211,25,0.4); }
         /* (Stats) Cada cuadro con el borde y el brillo de su propio color. */
         /* (Contornos) Paneles con borde vivo y glow sutil por fuera. */
-        /* (Fondo de paneles) Degradado azul con lavado cian arriba. */
-        .panel-fondo { background: radial-gradient(ellipse 90% 35% at 50% 0%, rgba(34,211,238,0.12), transparent 70%), linear-gradient(165deg, #0e2242 0%, #0b1a33 55%, #071026 100%); }
+        /* (Fondo de paneles) Degradado azul con lavado azul/turquesa arriba (paleta G espectral). */
+        .panel-fondo { background: radial-gradient(ellipse 90% 35% at 50% 0%, rgba(84,136,241,0.10), transparent 70%), radial-gradient(ellipse 60% 30% at 90% 0%, rgba(13,152,165,0.08), transparent 70%), linear-gradient(165deg, #0d1f3a 0%, #0b1a33 55%, #081426 100%); }
         @keyframes entradaModal { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
         .modal-anim { animation: entradaModal 0.2s ease-out; }
         .rango-activo { outline: 1px solid #38bdf8; box-shadow: 0 0 10px rgba(56,189,248,0.4); border-radius: 0.5rem; }
         @keyframes deslizarEsqueleto { from { background-position: 200% 0; } to { background-position: -200% 0; } }
         .esqueleto { background: linear-gradient(90deg, #16294d 25%, rgba(56,189,248,0.18) 50%, #16294d 75%); background-size: 200% 100%; animation: deslizarEsqueleto 1.4s linear infinite; }
         .genero-top { border: 1px solid rgba(56,189,248,0.5); background: rgba(56,189,248,0.06); border-radius: 0.5rem; padding: 0.25rem 0.5rem; }
-        .panel-neon { border-color: rgba(56,189,248,0.55); box-shadow: 0 0 18px rgba(56,189,248,0.18), inset 0 0 24px rgba(56,189,248,0.04); }
-        #select-orden:focus, #input-buscar:focus { border-color: #38bdf8; box-shadow: 0 0 12px rgba(56,189,248,0.5); }
+        .panel-neon { border-color: rgba(84,136,241,0.55); box-shadow: 0 0 18px rgba(84,136,241,0.18), inset 0 0 24px rgba(84,136,241,0.04); }
+        #select-orden:focus { border-color: #5488f1; box-shadow: 0 0 12px rgba(13,152,165,0.5), 0 0 20px rgba(84,136,241,0.35); }
+        #input-buscar:focus { border-color: #38bdf8; box-shadow: 0 0 12px rgba(56,189,248,0.5); }
         .stat-sky { border-color: rgba(56,189,248,0.55); box-shadow: 0 0 14px rgba(56,189,248,0.25), inset 0 0 12px rgba(56,189,248,0.06); }
         .stat-sky:hover { box-shadow: 0 0 24px rgba(56,189,248,0.45), inset 0 0 12px rgba(56,189,248,0.08); }
         .stat-ambar { border-color: rgba(251,191,36,0.55); box-shadow: 0 0 14px rgba(251,191,36,0.25), inset 0 0 12px rgba(251,191,36,0.06); }
@@ -145,17 +147,17 @@
         .val-ambar { text-shadow: 0 0 10px rgba(251,191,36,0.7), 0 0 28px rgba(251,191,36,0.35); }
         .val-verde { text-shadow: 0 0 10px rgba(34,197,94,0.7), 0 0 28px rgba(34,197,94,0.35); }
         .val-gris { text-shadow: 0 0 10px rgba(148,163,184,0.6), 0 0 28px rgba(148,163,184,0.3); }
-        .barra-atardecer { background: linear-gradient(90deg, #22d3ee, #ff2ea6, #ff7a18); }
+        .barra-atardecer { background: linear-gradient(90deg, #facc15, #0d98a5, #5488f1, #b16ef3); }
         .btn-atardecer {
-            background: linear-gradient(90deg, #22d3ee, #ff2ea6, #ff7a18);
+            background: linear-gradient(90deg, #0d98a5, #5488f1);
             color: #000;
-            box-shadow: 0 0 18px rgba(255,46,166,0.45), 0 0 32px rgba(0,229,255,0.25);
+            box-shadow: 0 0 18px rgba(13,152,165,0.45), 0 0 32px rgba(84,136,241,0.25);
         }
         .btn-atardecer:hover { filter: brightness(1.15); }
         .btn-seguir {
-            background: linear-gradient(90deg, #22d3ee, #a78bfa, #e879f9);
+            background: linear-gradient(90deg, #0d98a5, #5488f1, #b16ef3);
             color: #040b1a;
-            box-shadow: 0 0 16px rgba(34,211,238,0.45), 0 0 28px rgba(167,139,250,0.30);
+            box-shadow: 0 0 16px rgba(13,152,165,0.45), 0 0 28px rgba(177,110,243,0.30);
         }
         .btn-seguir:hover { filter: brightness(1.15); }
         /* Pantalla de carga (ronda 3): overlay a pantalla completa con la
@@ -177,7 +179,7 @@
          error). Sin manejadores inline: solo marca. -->
     <div id="pantalla-carga" role="status" aria-label="Cargando el catálogo">
         <img class="splash-nota" src="/icon-192.png" alt="" width="192" height="192">
-        <p class="font-display text-3xl md:text-4xl font-bold text-cyan-400 uppercase tracking-widest titulo-neon text-center">Evaluador Musical</p>
+        <p class="font-display text-3xl md:text-4xl font-bold text-[#5488f1] uppercase tracking-widest titulo-neon text-center">Evaluador Musical</p>
         <div class="splash-barra"><div class="linea-atardecer"></div></div>
     </div>
     <noscript><style>#pantalla-carga{display:none}</style><p style="color:#f87171;text-align:center;padding:1rem">Esta página necesita JavaScript activado para funcionar.</p></noscript>
@@ -185,7 +187,7 @@
     <!-- DASHBOARD SUPERIOR -->
     <header class="max-w-7xl mx-auto mb-3 pb-3 flex flex-col md:flex-row justify-between items-center gap-3">
         <div class="w-full md:w-auto text-center md:text-left">
-            <h1 class="font-display text-3xl md:text-4xl font-bold text-cyan-400 uppercase tracking-widest titulo-neon text-center md:text-left">Evaluador musical</h1>
+            <h1 class="font-display text-3xl md:text-4xl font-bold text-[#5488f1] uppercase tracking-widest titulo-neon text-center md:text-left">Evaluador musical</h1>
             <p class="text-sky-500 text-xs md:text-xs uppercase tracking-widest text-center md:text-left">Hecho por Gémini y mejorado por Muse</p>
         </div>
         
