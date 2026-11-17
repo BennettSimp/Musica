@@ -3,8 +3,13 @@
 -- resueltas (3 por Nova directamente, 21 por criterio de Muse con su confianza
 -- explícita: 'confiaré en tu criterio e investigación') + Dembow (529, 537, 538)
 -- + banda sonora 604. Detalle y motivos en revision-decisiones.md.
--- NO CORRER TODAVÍA: la aplicación es con la laptop, juntos y fase por fase,
--- junto con el despliegue del código preparado (que debe incluir los 5 géneros
+-- YA APLICADO 2026-11-16 — NO VOLVER A CORRER (se aplicó con la laptop,
+-- junto con el despliegue del código preparado; verificado en vivo:
+-- 128 UPDATEs). Las guardas lo harían no-op (UPDATE 0) si se re-corriera.
+-- NOTA POST-678: los 'esperado: 677' de la verificación son PRE-678;
+-- el vivo actual es 678 (ver correccion-678.sql).
+-- (La aplicación fue con la laptop, juntos y fase por fase, junto con el
+-- despliegue del código preparado, que incluye los 5 géneros
 -- nuevos: Bachata, Merengue, Dembow, Reggae, Afrobeats). Los lotes 2 y 3
 -- tienen su propia revisión pendiente; este archivo es solo el lote 4.
 --
@@ -117,7 +122,7 @@ UPDATE canciones SET genero = 'R&B' WHERE id = 306 AND genero = 'Pop'; -- Love t
 UPDATE canciones SET genero = 'Trap' WHERE id = 316 AND genero = 'Reggaeton'; -- Nathy peluso bzrp n. 36 — Bizarrap (Reggaeton → Trap) [Corrección clara verificada]
 UPDATE canciones SET genero = 'Reggaeton' WHERE id = 319 AND genero = 'Pop'; -- Amigos — Bibi (Pop → Reggaeton) [Corrección clara verificada]
 UPDATE canciones SET genero = 'Reggaeton' WHERE id = 329 AND genero = 'Pop'; -- La loto — Tini (Pop → Reggaeton) [Corrección clara verificada]
-UPDATE canciones SET genero = 'Reggaeton' WHERE id = 330 AND genero = 'Pop'; -- Sola — Becky G (Pop → Reggaeton) [Corrección clara verificada]
+UPDATE canciones SET genero = 'Reggaeton' WHERE id = 330 AND genero = 'Pop'; -- Sola — Becky G (Pop → Reggaeton) [Corrección clara verificada] [NOTA auditoría ronda 3, 2026-11-16: este UPDATE olvidó banda_sonora = TRUE (la 330 es banda sonora de The Crew 2, mismo criterio que la 604); el fix se aplicó en vivo por separado — UPDATE canciones SET banda_sonora = TRUE WHERE id = 330 AND genero = 'Reggaeton' — y se verificó 9/9. No se reescribe el SQL: archivo ya aplicado. Ojo: el ROLLBACK de este archivo (línea 260) solo restaura el género de la 330; si se usara, la dejaría con banda_sonora = TRUE.]
 UPDATE canciones SET genero = 'Pop' WHERE id = 335 AND genero = 'Reggaeton'; -- Guapa — Becky g (Reggaeton → Pop) [Corrección clara verificada]
 UPDATE canciones SET genero = 'Pop' WHERE id = 337 AND genero = 'Rock'; -- No te pertenezco — Becky G (Rock → Pop) [Corrección clara verificada]
 UPDATE canciones SET genero = 'Reggaeton' WHERE id = 340 AND genero = 'Pop'; -- Te supere — Becky G (Pop → Reggaeton) [Corrección clara verificada]

@@ -17,8 +17,20 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Descargar e instalar las cabeceras de Crow C++ Framework
-# Pin v1.3.4: corrige CVE-2026-116011 (Crow < 1.3.4). No bajar de aquí.
-RUN git clone --depth 1 --branch v1.3.4 https://github.com/CrowCpp/Crow.git /tmp/crow && \
+# Pin por commit SHA del tag v1.3.4 (corrige CVE-2026-116011, Crow < 1.3.4).
+# No bajar de aquí. El tag es movible en git; el SHA no: este commit es
+# inmutable y es exactamente el código del tag v1.3.4 (2026-09-07).
+# SHA verificado contra la API pública de GitHub el 2026-11-16:
+# tag v1.3.4 -> commit ae0fef0ee67eec897e401321b99b6dd7cfbdc155.
+# El fetch por SHA se verificó fuera de Docker (git fetch --depth 1
+# origin <sha> + checkout FETCH_HEAD; include/crow.h presente).
+# Si el fetch por SHA fallara algún día, el repliegue es
+# git clone --depth 1 --branch v1.3.4 (mismo código, sin pin duro).
+RUN git init -q /tmp/crow && \
+    cd /tmp/crow && \
+    git remote add origin https://github.com/CrowCpp/Crow.git && \
+    git fetch --depth 1 origin ae0fef0ee67eec897e401321b99b6dd7cfbdc155 && \
+    git checkout -q FETCH_HEAD && \
     cp -r /tmp/crow/include/* /usr/local/include/ && \
     rm -rf /tmp/crow
 

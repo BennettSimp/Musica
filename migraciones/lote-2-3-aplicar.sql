@@ -16,8 +16,13 @@
 --     Rap×21 NO se sostuvo: Trap 7, Reguetón 6, Rap 5, Electrónica 1,
 --     Pop 2 se quedan (120, 124). Detalle y fuentes en
 --     lote-2-otro-verificacion.md y lote-3-villano-verificacion.md.
--- NO CORRER TODAVÍA: la aplicación es con la laptop, juntos y fase por
--- fase, junto con el despliegue del código preparado (que ya incluye los
+-- YA APLICADO 2026-11-16 — NO VOLVER A CORRER (se aplicó con la laptop,
+-- junto con el despliegue del código preparado; verificado en vivo:
+-- 94 UPDATEs). Las guardas lo harían no-op (UPDATE 0) si se re-corriera.
+-- NOTA POST-678: los conteos 'esperado' de la verificación (PASO 4) son
+-- PRE-678; el vivo actual es 678 (ver correccion-678.sql).
+-- (La aplicación fue con la laptop, juntos y fase por fase, junto con el
+-- despliegue del código preparado, que ya incluye los
 -- géneros nuevos: lista GENEROS de 29 valores en app.js y main.cpp, con
 -- Lofi y Hardcore tras Afrobeats). Los lotes 1 y 4 tienen sus propios
 -- archivos (lote-1-aplicar.sql, lote-4-aplicar.sql) y NO se tocan aquí:

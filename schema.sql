@@ -4,6 +4,12 @@
 -- La tabla ya existe en produccion: este archivo documenta el estado actual
 -- y crea lo que falta (indice unico, indices, columnas de fecha) sin borrar datos.
 --
+-- ESTADO 2026-11-16 — YA APLICADO: la migración documentada aquí (los 5 SQL
+-- en orden + corrección 678) ya se aplicó en vivo; este archivo queda como
+-- documentación del esquema, NO volver a correrlo como migración. Los
+-- conteos de la sección de migración son PRE-678 (677 canciones, 680
+-- principales, 423 artistas); el vivo actual es 678 / 681 / 425.
+--
 -- ORDEN RECOMENDADO DE APLICACIÓN (los 5 SQL de la fase DB, en este orden):
 --   1. lote-1-aplicar.sql → 2. lote-2-3-aplicar.sql →
 --   3. lote-4-aplicar.sql → 4. titulos-correcciones.sql →
@@ -98,7 +104,7 @@ CREATE TRIGGER canciones_updated_at
 --    las excepciones 365 (Alternativo), 374 (Cumbia), 375 (Electrónica)
 --    y el reparto de Otro (solo la 576 va a Por clasificar; el resto va
 --    a su género real: Hardstyle 16, Electrónica 5, Cumbia 3, etc.).
---    La migración correcta es lote-2-3-aplicar.sql (75 UPDATEs con guarda
+--    La migración correcta es lote-2-3-aplicar.sql (94 UPDATEs con guarda
 --    AND genero, aprobados por Nova 2026-11-16); las de OST/Asiática van
 --    en lote-1-aplicar.sql y el resto en lote-4-aplicar.sql. Como red de
 --    seguridad, la lógica en bloque SOLO vale DESPUÉS de lote-2-3 y debe
@@ -131,7 +137,9 @@ CREATE TRIGGER canciones_updated_at
 -- Artistas y colaboraciones (diseno-artistas.md, aprobado por Nova
 -- 2026-11-15: tabla completa many-to-many, buenas practicas).
 -- Un duo o grupo ("Wisin & Yandel", "Miyagi & Andy Panda") es UN solo
--- artista. Principal = quien canta; invitado = featured; productor =
+-- artista. Principal = a quien se le acredita la cancion, sea productor o
+-- no (regla de Nova 2026-11-16; reemplaza "principal = quien canta");
+-- invitado = featured; productor =
 -- solo cuando esta claramente acreditado (sesiones BZRP, lista corta de
 -- 7 demasiado relevantes). Los remixers NO son artistas: el remix ya lo
 -- cubre etiqueta_especial.
@@ -158,12 +166,17 @@ CREATE INDEX IF NOT EXISTS cancion_artistas_artista_idx
 -- 2. Aplicar artistas-aplicar.sql, que YA INCLUYE el backfill (no se
 --    duplica aquí): 222 artistas distintos del catálogo + 677 filas de
 --    principal, renombres (PASO 3, inseparable del backfill), 214
---    artistas nuevos, 63 correcciones de principal (solo 29 cambian de
+--    artistas nuevos, 63 correcciones de principal (solo 34 cambian de
 --    artista_id), 330 invitados en 232 canciones y 14 productores en
 --    13 canciones. Artistas finales: 423.
 -- 3. Verificar con el PASO 9 de artistas-aplicar.sql: 677 canciones con
 --    principal, 680 filas de principal (531 con 3 y 662 con 2), 0
 --    canciones sin principal, 0 huérfanos, 0 productores fuera de lista.
+--    NOTA POST-678 (2026-11-16): estos conteos son PRE-678. En vivo, tras
+--    la 678 'Freaks' (correccion-678.sql, YA APLICADA): 678 canciones con
+--    principal, 681 filas de principal, 425 artistas. Criterio 34/29: la
+--    662 cuenta como cambio porque gana un segundo principal (ver
+--    artistas-aplicar.sql, PASO 5).
 -- 4. Desplegar el codigo nuevo (main.cpp + app.js ya leen de las tablas;
 --    el campo artista de canciones sigue existiendo como derivado).
 -- 5. SOLO DESPUES, como paso final separado (NO en este archivo ni en
@@ -171,3 +184,9 @@ CREATE INDEX IF NOT EXISTS cancion_artistas_artista_idx
 --    el rollback es re-crear la columna desde artistas + el respaldo
 --    del export. No se hace ahora: mientras la columna exista, el
 --    codigo viejo y el nuevo conviven y el export publico no cambia.
+-- 6. Canciones nuevas DESPUÉS de la migración (p. ej. la 678 'Freaks',
+--    2026-11-16): la app crea los artistas que faltan al agregar
+--    (main.cpp INSERT INTO artistas ... ON CONFLICT DO NOTHING; la
+--    secuencia quedó en 436, así que los nuevos son 437, 438, ...).
+--    NO hace falta ALTER ni migración nueva: solo verificar que el
+--    artista quedó con el nombre correcto (ver correccion-678.sql).

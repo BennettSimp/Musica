@@ -18,8 +18,11 @@
 -- general (ver schema.sql): lote-1-aplicar.sql → lote-2-3-aplicar.sql →
 -- lote-4-aplicar.sql → titulos-correcciones.sql (este archivo, 4.º) →
 -- artistas-aplicar.sql (5.º).
--- NO CORRER TODAVÍA: la aplicación es con la laptop, juntos y fase por fase,
--- junto con el despliegue del código preparado. Nada de esto está en vivo.
+-- YA APLICADO 2026-11-16 — NO VOLVER A CORRER (se aplicó con la laptop,
+-- junto con el despliegue del código preparado; verificado en vivo:
+-- 22 UPDATEs). Las guardas lo harían no-op (UPDATE 0) si se re-corriera.
+-- NOTA POST-678: los 'esperado: 677' de la verificación son PRE-678;
+-- el vivo actual es 678 (ver correccion-678.sql).
 --
 -- EXCLUIDAS (con motivo, no se pierden):
 --   - 629 'Stranger things (official tral remix)': su corrección de título ya está
@@ -85,7 +88,7 @@ UPDATE canciones SET titulo = 'MONTERO (Call Me By Your Name)', artista = 'Lil N
 -- PASO 2 — La 633 NO lleva UPDATE (su etiqueta ya es 'Remix'; ver encabezado).
 -- Se incluye en la verificación de abajo para confirmarlo.
 
-COMMIT;
+COMMIT; -- NOTA (auditoría ronda 3, 2026-11-16): este COMMIT va ANTES de la verificación del PASO 3 (líneas 90-96): las SELECT de verificación corren fuera de la transacción, así que ya no pueden hacer rollback si algo sale mal. Las SELECT son solo lectura, así que no hay riesgo de escritura; es solo un defecto de estructura. No se reescribe el SQL: archivo ya aplicado en vivo.
 
 -- PASO 3 — Verificación:
 SELECT id, titulo, artista, etiqueta_especial FROM canciones WHERE id IN (2, 30, 41, 114, 116, 246, 250, 252, 263, 401, 402, 416, 423, 505, 506, 530, 603, 621, 625, 631, 633, 659, 677) ORDER BY id; -- la 633 debe salir con etiqueta_especial = 'Remix' (ya estaba); la 677 con titulo 'MONTERO (Call Me By Your Name)' y artista 'Lil Nas X'

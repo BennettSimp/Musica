@@ -20,15 +20,15 @@ Descubrimiento único, Arte Visual). Nota máxima: 20.
 | Variable | Qué es |
 |---|---|
 | `DATABASE_URL` | URI de Supabase, **Session pooler, puerto 6543**. La Directa (5432, IPv6) no funciona en Render. |
-| `ADMIN_TOKEN` | Clave para escribir (POST/PUT/DELETE), mínimo 24 caracteres. Sin ella, cualquiera puede modificar el catálogo. |
+| `ADMIN_TOKEN` | Clave para escribir (POST/PUT/DELETE), mínimo 24 caracteres. Sin ella (o si es más corta), las escrituras devuelven 401. |
 | `ALLOWED_ORIGIN` | Dominio de Vercel para CORS. Si no se define, queda `https://musica-plum-psi.vercel.app`. |
 
 Copia `.env.example` como `.env` para desarrollo local. El `.env` nunca se sube.
 
 ## Despliegue
 
-1. Push a `main` en GitHub → Vercel despliega el frontend y Render recompila el backend.
-2. Verificar: `/api/salud` responde JSON `{"status":"OK","admin_token_configurado":bool}` y `/api/canciones/stats` muestra el total (677).
+1. Push a `main` en GitHub → Vercel despliega el frontend y Render recompila el backend. OJO: en PR #1 y PR #2 el auto-deploy de Render NO disparó; hubo que lanzar Manual Deploy → Deploy latest commit (revisar Auto-Deploy en Settings → Build & Deploy). PR #3 (botón `.btn-seguir` + iconos nota ♪) fusionado en `main` fb0f900d el 2026-11-16; su despliegue manual está pendiente.
+2. Verificar: `/api/salud` responde JSON `{"status":"OK","admin_token_configurado":bool}` y `/api/canciones/stats` muestra el total (678).
 3. Respaldo antes de tocar la base: `GET /api/canciones/exportar` → guardar el JSON.
 
 ## Endpoints
@@ -67,7 +67,7 @@ Copia `.env.example` como `.env` para desarrollo local. El `.env` nunca se sube.
 `node harness-pruebas.js` (los datos reales son opcionales: si falta
 `public/datos-reales.json`, el export en local, las pruebas con datos
 reales se saltan y las invariantes corren con un fixture sintético).
-197 pruebas: la fórmula, el desempate y el Top 10, el rank global, la
+427 pruebas: la fórmula, el desempate y el Top 10, el rank global, la
 mezcla HSL 0–90% y el degradado verde→dorado por puesto, el histograma
 (incluidos el rango 'menos-10', los filtros y los porcentajes), las
 fronteras del degradado 0–90% y el reseteo del filtro de género guardado
@@ -96,7 +96,35 @@ nulls, redondeo .xx5), bordes de rampa (17.50–19.00, nota 0 sin dorado),
 cadena sintética de desempate de 8 canciones, tablas POST/PUT /info y
 de calificar estricto, casos de artistas (dedupe, >10, productores
 puros 0/0), catálogo vacío y bordes de paginación, grep de secretos en
-logs, DESEMPATE_ASC fijado como espejo exacto y /api/salud JSON.
+logs, DESEMPATE_ASC fijado como espejo exacto y /api/salud JSON. La
+auditoría ronda 2 (2026-11-16) añadió 31 más (197→228): sección 5b con
+la consulta SQL real del histograma (subconsulta por el alias 'rango',
+bordes y contrato sin andamiaje de bins), sección 5c con anclajes de
+texto del orden completo de DESEMPATE, umbrales/ventanas de color de
+fila, rangos de filtrarRango, colorBarra y precache de sw.js; sección
+22 (R2-O2) de control de errores (helpers textoOpcional/boolOpcional,
+PUT /info conserva casillas, isfinite, guardas dentro del try, 5xx+413,
+timeout en las 8 lecturas, toastLectura); sección 18b (R2-LOG) de logs
+(sanitizar tapa URL, contraseña suelta y token, causa del pool, id en
+errores 500). La auditoría final absoluta, ronda 3 (2026-11-16), añadió
+125 más (228→353): sección 23 con 113 pruebas (GOD ≥19 anclado,
+mostrarErrorHttp extraído y ejecutado con respuestas falsas,
+claveCancion/normalizarTexto, límites de lectura y de cuerpo, timeouts,
+token en sessionStorage, validación POST/PUT, órdenes de listado,
+búsqueda con truncado UTF-8, /api/salud y /api/salud/db con límite,
+pool, CORS, export CSV, bloqueo por acción, respuestas obsoletas,
+sliders solo por arrastre y Editar en Evaluar); sección 24 con 12
+pruebas (401 con distinción token-no-configurado vs clave incorrecta,
+DB caída → 503, total_paginas con catálogo vacío, CSV con objetos y
+los 3 fixes de logs de la ronda 3). La mega-auditoría, ronda 4
+(2026-11-16), añadió 74 más (353→427): sección 25 con 74 pruebas
+(splash con sandbox real de cargarCatalogo, color de fila real
+extraído de app.js con diferencial de 136 combinaciones nota×puesto,
+10 anclas numéricas de backend extraídas de main.cpp, catálogo
+sintético de 678 canciones, artistas reales extraídos, UTF-8 con
+cirílico y emoji, título de 200 caracteres, .xx5 en ambos sentidos,
+catálogo vacío e histograma); espejos paginaDe y statsDe corregidos
+(mediana real y total_paginas con max(1, …)).
 
 ## Seguridad
 
@@ -112,7 +140,7 @@ logs, DESEMPATE_ASC fijado como espejo exacto y /api/salud JSON.
 ## Colores (cerrados)
 
 Top 10 dorado SOLO por puesto global (sin exigir nota ≥19; decisión
-2026-11-13 19:19 CST), GOD >19 verde, >18 fuchsia, >17.8 violeta, resto cian.
+2026-11-13 19:19 CST), GOD ≥19 verde, ≥18 fuchsia, ≥17.8 violeta, resto cian.
 Degradado 0–90% con curva suave (smoothstep): cada ventana empieza en el
 color puro y sube hasta 90% en el umbral; ventanas 0.3 antes de 17.8
 (17.5–17.8), 0.5 antes de 19 y 0.2 antes de 18. Del 11 al 20 mezcla desde

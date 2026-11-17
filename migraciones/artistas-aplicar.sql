@@ -4,8 +4,10 @@
 -- productores. Detalle en colaboraciones.md, colaboraciones-reverificacion.md
 -- y decisiones-colaboraciones.md.
 --
--- NO CORRER TODAVÍA: la aplicación es con la laptop, juntos y fase por fase,
--- JUNTO con el despliegue del código preparado (schema.sql, main.cpp, app.js).
+-- YA APLICADO 2026-11-16 — NO VOLVER A CORRER: se aplicó con la laptop,
+-- junto con el despliegue del código preparado (schema.sql, main.cpp, app.js).
+-- Re-correrlo FALLA (INSERTs duplicados: PK de artistas y cancion_artistas,
+-- UNIQUE de nombre_norm). Este archivo queda como registro de lo aplicado.
 -- Requisitos previos: respaldo del export (/api/canciones/exportar) y el
 -- despliegue del código con los 5 géneros nuevos (Bachata, Merengue, Dembow,
 -- Reggae, Afrobeats). Este archivo SOLO crea las tablas artistas y
@@ -22,10 +24,12 @@
 --   rename del PASO 3 (id 122 'Lil nas x' → 'Lil Nas X') sincroniza
 --   ambas tablas con la decisión de Nova sobre la 677.
 --
--- PASO 5 (63 canciones): solo 29 cambian de artista_id; las otras 34 son
+-- PASO 5 (63 canciones): solo 34 cambian de artista_id; las otras 29 son
 -- re-escrituras no-op del mismo artista_id, necesarias solo porque el
 -- PASO 3 renombró al artista (p. ej. 'Aleman' → Alemán, mismo id 3).
--- Verificado por simulación contra public/datos-reales.json.
+-- Verificado por simulación contra public/datos-reales.json (criterio:
+-- cambia el CONJUNTO de principales; la 662 cuenta como cambio porque
+-- gana un segundo principal aunque su orden 0 siga siendo Lil Wayne).
 --
 -- PASO 2 y PASO 3 SON INSEPARABLES: el backfill del PASO 2 viola
 -- temporalmente nombre_norm = lower(trim(nombre)) en 21 filas (p. ej.
@@ -40,14 +44,20 @@
 --   2. Revisa el paso de verificación: 677 canciones con principal, 680 filas
 --      de principal (531 y 662 tienen más de un principal), 0 huérfanos, y
 --      que ningún productor fuera de la lista corta quedó registrado.
+--   NOTA POST-678 (2026-11-16): los conteos de verificación de arriba son
+--   PRE-678 (catálogo de 677 al aplicar). En vivo, tras agregar la 678
+--   'Freaks' (correccion-678.sql, YA APLICADA), los valores actuales son
+--   678 canciones con principal, 681 filas de principal y 425 artistas
+--   (423 + 437 Timmy Trumpet + 438 Savage).
 --   3. Si algo sale mal, usa el ROLLBACK del final.
 --
 -- NOTAS — fuera de este archivo (se aplican en su fase, no aquí):
 --   - 633 'TMM TMM': CORREGIDO 2026-11-16 — su etiqueta_especial YA es
 --     'Remix' en vivo (verificado contra el export). NO lleva UPDATE en
 --     ningún archivo. La nota anterior ("debe pasar a 'Remix', hoy None")
---     era incorrecta; el mismo error está en
---     colaboraciones-reverificacion.md:80 (pendiente de corrección).
+--     era incorrecta; el mismo error ya está corregido en
+--     colaboraciones-reverificacion.md:80 ("ya está en Remix en vivo;
+--     sin acción").
 --   - Typos de título (629 'tral'→'trap', 631 'Unforgetabble'→'Unforgettable',
 --     621 título/artista invertidos, 506 'physco', etc.) van en la fase DB de
 --     correcciones de títulos, no en este archivo.
@@ -1243,7 +1253,7 @@ SELECT setval('artistas_id_seq', 436);
 
 -- PASO 5 — Correcciones de principal (63 canciones).
 -- Se borra la fila principal del backfill y se inserta la corregida.
--- Solo 29 cambian de artista_id; las otras 34 re-escriben el mismo
+-- Solo 34 cambian de artista_id; las otras 29 re-escriben el mismo
 -- artista_id (no-op) porque el PASO 3 renombró al artista. Ver encabezado.
 -- 39 EYO: 'Aleman' -> Alemán
 DELETE FROM cancion_artistas WHERE cancion_id = 39 AND rol = 'principal';
@@ -1798,6 +1808,9 @@ DELETE FROM artistas a WHERE NOT EXISTS (
 );
 
 -- PASO 9 — Verificación (leer los resultados antes de cerrar).
+-- NOTA POST-678 (2026-11-16): los 'esperado' de abajo son PRE-678.
+-- En vivo, tras la 678 'Freaks': principal 681, invitado 331,
+-- 678 canciones con principal, 425 artistas distintos.
 SELECT rol, COUNT(*) AS filas FROM cancion_artistas GROUP BY rol ORDER BY rol;
 -- esperado: principal 680, invitado 330, productor 14
 SELECT COUNT(*) AS canciones_con_principal FROM (

@@ -4,7 +4,10 @@ public/
 *.md
 .env*
 build/
+node_modules/
 *.sql
 *.py
 *.log
 revision-datos.json
+# Harness de pruebas del frontend (solo para la auditoria local, no para compilar el servidor)
+harness-pruebas.js

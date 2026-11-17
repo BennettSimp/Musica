@@ -1,6 +1,9 @@
 -- Lote 1 de géneros — SQL para aplicar en el SQL Editor de Supabase
--- Aprobado por Nova 2026-11-15. NADA aplicado todavía: esto se corre
--- juntos, con la laptop, después de hacer un respaldo.
+-- Aprobado por Nova 2026-11-15. YA APLICADO 2026-11-16 (con la laptop,
+-- tras respaldo; verificado en vivo: 8 UPDATEs, 0 en OST/Asiatica).
+-- NO VOLVER A CORRER: las guardas lo harían no-op (UPDATE 0). Este
+-- archivo queda como registro de lo aplicado. Los 'esperado: 677' de la
+-- verificación son PRE-678; el vivo actual es 678 (ver correccion-678.sql).
 --
 -- CÓMO SE USA:
 --   0. Respaldo: descarga https://clasificacion-de-musica.onrender.com/api/canciones/exportar

@@ -5,7 +5,8 @@
   "main": "public/app.js",
   "scripts": {
     "start": "npx serve public",
-    "build": "echo 'Frontend estatico sin build: Tailwind por CDN, salida en public/'"
+    "build": "echo 'Frontend estatico sin build: Tailwind por CDN, salida en public/'",
+    "test": "node harness-pruebas.js"
   },
   "keywords": [
     "pwa",
