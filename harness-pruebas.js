@@ -1943,10 +1943,10 @@ ok(cssCache && fuentesCache && cssCache.headers[0].value.includes('max-age=3600'
 // 25j. R5 package-lock.json (2026-11-17): generado por `npm install` al
 // instalar tailwindcss 3.4.17 (bloque 1); fija las versiones sin cambiarlas.
 const lock = JSON.parse(fs.readFileSync(path.join(BASE, 'package-lock.json'), 'utf8'));
-const pkg = JSON.parse(fs.readFileSync(path.join(BASE, 'package.json'), 'utf8'));
+const pkgJson = JSON.parse(fs.readFileSync(path.join(BASE, 'package.json'), 'utf8'));
 ok(lock.lockfileVersion === 3 && lock.packages['node_modules/tailwindcss'].version === '3.4.17' && lock.packages['node_modules/serve'].version.startsWith('14.2.'),
   'R5 package-lock: lockfile v3, tailwindcss 3.4.17 exacto y serve 14.2.x fijados');
-ok(pkg.devDependencies.tailwindcss === '^3.4.17' && pkg.devDependencies.serve === '^14.2.0' && fs.readFileSync(path.join(BASE, '.gitignore'), 'utf8').includes('node_modules/'),
+ok(pkgJson.devDependencies.tailwindcss === '^3.4.17' && pkgJson.devDependencies.serve === '^14.2.0' && fs.readFileSync(path.join(BASE, '.gitignore'), 'utf8').includes('node_modules/'),
   'R5 package-lock: package.json sin cambio de versiones; node_modules/ en .gitignore (el lock sí se sube)');
 // 25k. R5 pg_trgm (2026-11-17, extras bloque 4): migración OPCIONAL
 // documentada en schema.sql (comentada, NO aplicada en vivo): la
@@ -2069,6 +2069,23 @@ ok(vercelM.headers.some(h => h.source === '/js/api.js' && h.headers[0].value.inc
   'R5 módulos: vercel.json Cache-Control para /js/api.js (igual que app.js)');
 ok(idxHtml.indexOf('/js/api.js') > idxHtml.indexOf('/js/colores.js') && idxHtml.indexOf('/js/api.js') < idxHtml.indexOf('/app.js'),
   'R5 módulos: index.html carga api.js entre colores.js y app.js');
+// 25o. R5 fuentes en build (2026-11-17, PR #7): el conector de GitHub no
+// sube binarios, así que las 10 woff2 NO van en el repo; Vercel las descarga
+// al compilar con scripts/descargar-fuentes.js y verifica su sha256.
+// Si Google cambiara un archivo, el build falla en vez de servir otra fuente.
+const fuentesJs = fs.readFileSync(path.join(BASE, 'scripts/descargar-fuentes.js'), 'utf8');
+const gitignore = fs.readFileSync(path.join(BASE, '.gitignore'), 'utf8');
+const FUENTES_ESPERADAS = ['chakra-petch-500-latin.woff2', 'chakra-petch-500-latin-ext.woff2', 'chakra-petch-700-latin.woff2', 'chakra-petch-700-latin-ext.woff2', 'jetbrains-mono-400-latin.woff2', 'jetbrains-mono-400-latin-ext.woff2', 'jetbrains-mono-400-cyrillic.woff2', 'jetbrains-mono-700-latin.woff2', 'jetbrains-mono-700-latin-ext.woff2', 'jetbrains-mono-700-cyrillic.woff2'];
+ok(FUENTES_ESPERADAS.every(f => fuentesJs.includes(f)) && (fuentesJs.match(/sha256: '[0-9a-f]{64}'/g) || []).length === 10,
+  'R5 fuentes: el script lista las 10 woff2 con su sha256 (64 hex) cada una');
+ok(FUENTES_ESPERADAS.every(f => fuentesJs.includes('fonts.gstatic.com') ) && fuentesJs.includes("process.exit(1)") && fuentesJs.includes('HASH NO COINCIDE'),
+  'R5 fuentes: el script descarga de fonts.gstatic.com y falla el build si un hash no coincide');
+ok(pkgJson.scripts.build.startsWith('node scripts/descargar-fuentes.js') && pkgJson.scripts.build.includes('tailwindcss'),
+  'R5 fuentes: `npm run build` descarga las fuentes ANTES de compilar Tailwind');
+ok(gitignore.includes('public/fonts/*.woff2'),
+  'R5 fuentes: .gitignore excluye las woff2 (son artefactos de build, no van al repo)');
+ok(FUENTES_ESPERADAS.every(f => fs.existsSync(path.join(BASE, 'public/fonts', f))),
+  'R5 fuentes: las 10 woff2 existen en local (las descargó el script, byte a byte iguales a las del repo anterior)');
 
 Promise.all(pendientes).then(() => {
   console.log(`\n${pasadas} PASS, ${fallos} FAIL, ${saltadas} SKIP${tieneDatos ? '' : ' (sin datos reales: solo [invariante])'}`);

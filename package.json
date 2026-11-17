@@ -5,7 +5,7 @@
   "main": "public/app.js",
   "scripts": {
     "start": "npx serve public",
-    "build": "npx tailwindcss -i ./public/css/tailwind.css -o ./public/css/tailwind.min.css --minify",
+    "build": "node scripts/descargar-fuentes.js && npx tailwindcss -i ./public/css/tailwind.css -o ./public/css/tailwind.min.css --minify",
     "test": "node harness-pruebas.js"
   },
   "keywords": [
