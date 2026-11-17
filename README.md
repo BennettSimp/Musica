@@ -12,8 +12,11 @@ Descubrimiento único, Arte Visual). Nota máxima: 20.
   `app.js` + módulos `js/colores.js` y `js/api.js`, cargados en ese
   orden con `defer`). PWA. Tailwind 3.4.17 compilado en local
   (`tailwind.config.js`, `public/css/tailwind.min.css`, fuentes woff2
-  autoalojadas en `public/fonts/`); `npm run build` compila Tailwind
-  y `npm run test` corre el harness. Sin CDN ni fuentes de Google.
+  autoalojadas en `public/fonts/`); `npm run build` descarga las
+  fuentes woff2 de Google Fonts y verifica su sha256
+  (`scripts/descargar-fuentes.js`, no se guardan en el repo) y luego
+  compila Tailwind; `npm run test` corre el harness. Sin CDN ni fuentes
+  de Google en runtime.
   CSP completa en `vercel.json` (`script-src 'self'`, sin handlers
   inline: delegación `data-accion`).
 - **Backend (Render):** C++ con Crow + libpqxx, en Docker (`Dockerfile`, `main.cpp`).
@@ -85,7 +88,7 @@ correrlos. `schema.sql` documenta este orden completo.
 `node harness-pruebas.js` (los datos reales son opcionales: si falta
 `public/datos-reales.json`, el export en local, las pruebas con datos
 reales se saltan y las invariantes corren con un fixture sintético).
-537 pruebas: la fórmula, el desempate y el Top 10, el rank global, la
+542 pruebas: la fórmula, el desempate y el Top 10, el rank global, la
 mezcla HSL 0–90% hacia el dorado en los puestos 11–30, el histograma
 (incluidos el rango 'menos-10', los filtros y los porcentajes), las
 fronteras del degradado 0–90% y el reseteo del filtro de género guardado
@@ -161,7 +164,9 @@ netas (535→531): salieron 9 de franja/híbrido y entraron 5 de mezcla.
 El alargamiento de transiciones (2026-11-17) añadió 5 netas (531→536):
 rampas continuas 17.0–19.0 y mezcla 11–30. El ajuste del inicio a 17.5
 (2026-11-17, Nova) añadió 1 neta (536→537): la transición a 17.8
-empieza en 17.5, no en 17.0. Los extras de la ronda 5 (2026-11-17) añadieron 45
+empieza en 17.5, no en 17.0. Las fuentes en build (2026-11-17, PR #7)
+añadieron 5 netas (537→542): `scripts/descargar-fuentes.js` descarga las
+10 woff2 con sha256 verificado. Los extras de la ronda 5 (2026-11-17) añadieron 45
 más (485→530): Tailwind local + fuentes propias (8, 485→493), CSP
 completa con delegación `data-accion` (8, 493→501), `package-lock.json`
 (2, 501→503), `pg_trgm` documentado en `schema.sql` (2, 503→505),

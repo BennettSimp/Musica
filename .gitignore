@@ -14,3 +14,7 @@ node_modules/
 public/datos-reales.json
 public/datos-en-vivo.json
 revision-datos.json
+
+# Fuentes woff2: se descargan en el build (scripts/descargar-fuentes.js),
+# no se guardan en el repo porque el conector no sube binarios
+public/fonts/*.woff2
