@@ -7,11 +7,11 @@
 // con el fixture sintético FIX; las [datos reales] se saltan (SKIP),
 // no fallan. Con datos reales presentes, corren todas.
 // Las funciones de color (hexAHsl, hslARgb, mezcla, rgbaDesde, suave,
-// grad) se EXTRAEN del app.js real por nombre y se evalúan (P1): si la
+// luminanciaRelativa, yObjetivo, tonoPorNota, colorPorNota, alfaGlowGod)
+// se EXTRAEN del app.js real por nombre y se evalúan (P1): si la
 // extracción falla, el harness muere con mensaje claro, nunca sigue con
-// copias viejas. `grad` lee las variables de módulo notaColor y
-// enTransicionColor (app.js:293): el sandbox las declara y __fijarNota
-// las fija antes de cada llamada.
+// copias viejas. Paleta G (2026-11-16): las funciones son auto-contenidas
+// (usan literales, sin variables de módulo ni medio pálido).
 // Las listas GENEROS_VALIDOS/ETIQUETAS_VALIDAS se extraen de main.cpp
 // (P7). Las reglas de backend (calificar, POST/PUT /info, artistas) se
 // prueban como espejos documentados de main.cpp: el harness no ejecuta
@@ -81,38 +81,47 @@ const appJsSrc = fs.readFileSync(BASE + 'public/app.js', 'utf8');
 const mainCppSrc = fs.readFileSync(BASE + 'main.cpp', 'utf8');
 let colores;
 try {
-  const fns = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'grad'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
-  // `grad` lee/escribe notaColor y enTransicionColor (app.js:293): se
-  // declaran aquí, en el mismo ámbito que las funciones extraídas, y
-  // __fijarNota las fija antes de cada llamada a grad.
-  const sandbox = 'let notaColor = 0, enTransicionColor = false;\n' + fns.join('\n')
-    + '\nfunction __fijarNota(n) { notaColor = n; enTransicionColor = false; }'
-    + '\nfunction __enTransicion() { return enTransicionColor; }'
-    + '\nreturn { hexAHsl, hslARgb, mezcla, rgbaDesde, suave, grad, __fijarNota, __enTransicion };';
+  const fns = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
+  // Paleta G (2026-11-16): las funciones de color son auto-contenidas
+  // (usan literales, sin variables de módulo); no hay sandbox de nota.
+  const sandbox = fns.join('\n')
+    + '\nreturn { hexAHsl, hslARgb, mezcla, rgbaDesde, suave, luminanciaRelativa, yObjetivo, tonoPorNota, colorPorNota, alfaGlowGod };';
   colores = new Function(sandbox)();
 } catch (e) {
   console.error('FALLO DE EXTRACCIÓN (P1): no se pudieron extraer las funciones de color de public/app.js: ' + e.message);
   console.error('El harness NO sigue con copias viejas: corrige app.js o el extractor y vuelve a correr.');
   process.exit(1);
 }
-const { hexAHsl, hslARgb, mezcla, rgbaDesde, suave, grad } = colores;
-const gradNota = (nota, base, sig, umbral, ancho = 0.2) => { colores.__fijarNota(nota); return grad(base, sig, umbral, ancho); };
+const { hexAHsl, hslARgb, mezcla, rgbaDesde, suave, luminanciaRelativa, yObjetivo, tonoPorNota, colorPorNota, alfaGlowGod } = colores;
 // colorFila: espejo exacto de la lógica de color de app.js (cargarCatalogo,
-// ~líneas 599-624), con las funciones extraídas. Sin calificar (nota <= 0)
-// la fila es gris y el dorado exige nota > 0 (oleada 1).
+// bloque // INICIO-COLOR-G), con las funciones extraídas. Sin calificar
+// (nota <= 0) la fila es gris y el dorado exige nota > 0 (oleada 1).
+// Paleta G (2026-11-16): colorPorNota (bisección, 60 iteraciones) + mezcla dorada por
+// puesto; sin grad ni pálido.
 const colorFila = (nota, rank) => {
-  colores.__fijarNota(nota);
-  let colorBase = '#22d3ee';
+  let colorBase;
   if (nota <= 0) colorBase = '#6b7280';
-  if (nota >= 19) colorBase = '#22c55e';
-  else if (nota >= 18) colorBase = '#d946ef';
-  else if (nota >= 17.8) colorBase = '#8b5cf6';
-  else if (nota > 0) { const g = grad('#22d3ee', '#8b5cf6', 17.8, 0.3); if (g) colorBase = g; }
-  { const g = grad('#d946ef', '#22c55e', 19, 0.5); if (g) colorBase = g; }
-  { const g = grad('#8b5cf6', '#d946ef', 18); if (g) colorBase = g; }
+  else colorBase = colorPorNota(nota);
   if (nota > 0 && rank > 10 && rank <= 20) colorBase = mezcla(0.9 * suave((20 - rank) / 9), colorBase, '#facc15');
   if (nota > 0 && rank <= 10) colorBase = '#facc15';
   return colorBase;
+};
+// alfaGlowFila: espejo del alfa de glow de app.js (cargarCatalogo).
+// El dorado por puesto tiene alfa 0.70 aunque su nota sea GOD: en app.js
+// el glow dorado sobrescribe al de banda.
+const alfaGlowFila = (nota, rank) => {
+  if (nota <= 0) return 0.30;
+  if (nota > 0 && rank <= 10) return 0.70;
+  if (nota >= 19) return alfaGlowGod(nota);
+  if (nota >= 18) return 0.40;
+  if (nota >= 17.8) return 0.35;
+  return 0.30;
+};
+// rgb(...) o hex → hex minúsculo, para fijar literales legibles en los tests
+// de color (la referencia de la regla se da en hex).
+const aHex = c => {
+  const m = c.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  return m ? '#' + [1, 2, 3].map(i => (+m[i]).toString(16).padStart(2, '0')).join('') : c.toLowerCase();
 };
 // P7: listas extraídas de main.cpp (no replicadas a mano).
 const extraerListaCpp = (src, nombre) => {
@@ -261,13 +270,13 @@ console.log(`  nota 18.9 → t=${gradT(18.9).toFixed(2)} → mezcla ${(0.9 * sua
 // y el filtro del histograma ([a, b-0.01]) lo dejaria fuera de su rango.
 // Misma lógica que el CASE del endpoint /histograma (main.cpp), incluido
 // el rango 'menos-10' nuevo de la auditoría D.
-const binSql = n => n === 0 ? 'sin_calificar' : (n > 0 && n < 10) ? 'menos-10' : n < 12 ? '10-12' : n < 14 ? '12-14' : n < 16 ? '14-16' : n < 18 ? '16-18' : n < 19 ? '18-19' : '19-20';
-const bins = { 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 };
+const binSql = n => n === 0 ? 'sin_calificar' : (n > 0 && n < 10) ? 'menos-10' : n < 12 ? '10-12' : n < 14 ? '12-14' : n < 16 ? '14-16' : n < 17.8 ? '16-17.8' : n < 18 ? '17.8-18' : n < 19 ? '18-19' : '19-20';
+const bins = { 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-17.8': 0, '17.8-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 };
 if (tieneDatos) {
   for (const c of C) bins[binSql(c.calificacion_final)]++;
   const con3 = C.filter(c => Math.abs(c.calificacion_final * 100 - Math.round(c.calificacion_final * 100)) > 1e-9);
   ok(con3.length === 0, `[datos reales] notas con mas de 2 decimales: ${con3.length} (deben ser 0)`);
-  ok(JSON.stringify(bins) === JSON.stringify({ 'menos-10': 0, '10-12': 22, '12-14': 79, '14-16': 157, '16-18': 201, '18-19': 142, '19-20': 76, 'sin_calificar': 0 }),
+  ok(JSON.stringify(bins) === JSON.stringify({ 'menos-10': 0, '10-12': 22, '12-14': 79, '14-16': 157, '16-17.8': 185, '17.8-18': 16, '18-19': 142, '19-20': 76, 'sin_calificar': 0 }),
     `[datos reales] histograma: ${JSON.stringify(bins)}`);
   console.log(`  géneros (export viejo): ${JSON.stringify(Object.entries(C.reduce((m, c) => { m[c.genero] = (m[c.genero] || 0) + 1; return m; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 5))}`);
 } else skip('histograma con datos reales (sin public/datos-reales.json)');
@@ -291,11 +300,13 @@ for (const r of Object.keys(bins)) {
 ok(desajuste.length === 0, `filtro = bin en todos los rangos (desajuste: ${desajuste.join(',') || 'ninguno'})`);
 // Orden CASE: menos-10 primero, sin calificar último.
 const ordenCase = rs => [...rs].sort((x, y) => (x === 'sin_calificar' ? 99 : x === 'menos-10' ? 0 : parseInt(x)) - (y === 'sin_calificar' ? 99 : y === 'menos-10' ? 0 : parseInt(y)));
-ok(JSON.stringify(ordenCase(Object.keys(bins))) === JSON.stringify(['menos-10', '10-12', '12-14', '14-16', '16-18', '18-19', '19-20', 'sin_calificar']), 'orden CASE del histograma');
+ok(JSON.stringify(ordenCase(Object.keys(bins))) === JSON.stringify(['menos-10', '10-12', '12-14', '14-16', '16-17.8', '17.8-18', '18-19', '19-20', 'sin_calificar']), 'orden CASE del histograma');
 if (tieneDatos) {
-  // Porcentajes redondeados suman 100.
+  // Porcentajes redondeados suman 99, 100 o 101 (±1 por redondeo con 9
+  // bins: 0+3+12+23+27+2+21+11+0 = 99 con los datos reales; antes con 8
+  // bins sumaba 100 exacto).
   const pcts = Object.values(bins).map(x => Math.round(x / C.length * 100));
-  ok(pcts.reduce((a, b) => a + b, 0) === 100, `[datos reales] porcentajes: ${pcts.join('+')}=100`);
+  ok(Math.abs(pcts.reduce((a, b) => a + b, 0) - 100) <= 1, `[datos reales] porcentajes: ${pcts.join('+')}=${pcts.reduce((a, b) => a + b, 0)} (±1 por redondeo con 9 bins)`);
   // Género top: Baladas 18.8, sin empate en el máximo (2º Metal 18.4).
   const notasGenero = {};
   for (const c of C) if (c.calificacion_final > 0) (notasGenero[c.genero] = notasGenero[c.genero] || []).push(c.calificacion_final);
@@ -323,14 +334,14 @@ ok(histInner.includes('SELECT CASE') && !histInner.includes('ORDER BY'),
 ok(histOuter.includes("ORDER BY CASE WHEN rango = 'sin_calificar' THEN 99 WHEN rango = 'menos-10' THEN 0")
   && histOuter.includes("CAST(SUBSTRING(rango FROM '^[0-9]+') AS INT)"),
   'histograma SQL: el ORDER BY exterior usa rango como columna real (sin_calificar último=99, menos-10 primero=0, resto por número inicial)');
-ok(['sin_calificar', 'menos-10', '10-12', '12-14', '14-16', '16-18', '18-19', '19-20'].every(r => histInner.includes("'" + r + "'")),
-  'histograma SQL: el CASE interior produce los 8 rangos (sin_calificar, menos-10, 10-12, 12-14, 14-16, 16-18, 18-19, 19-20)');
+ok(['sin_calificar', 'menos-10', '10-12', '12-14', '14-16', '16-17.8', '17.8-18', '18-19', '19-20'].every(r => histInner.includes("'" + r + "'")),
+  'histograma SQL: el CASE interior produce los 9 rangos (sin_calificar, menos-10, 10-12, 12-14, 14-16, 16-17.8, 17.8-18, 18-19, 19-20)');
 ok(histInner.includes('COALESCE(calificacion_final,0) = 0') && histInner.includes('calificacion_final > 0 AND calificacion_final < 10')
-  && ['< 12', '< 14', '< 16', '< 18', '< 19'].every(t => histInner.includes('calificacion_final ' + t)),
-  'histograma SQL: bordes del CASE (0 = sin calificar; <10, <12, <14, <16, <18, <19) — mismos que binSql');
+  && ['< 12', '< 14', '< 16', '< 17.8', '< 18', '< 19'].every(t => histInner.includes('calificacion_final ' + t)),
+  'histograma SQL: bordes del CASE (0 = sin calificar; <10, <12, <14, <16, <17.8, <18, <19) — mismos que binSql');
 // Sin andamiaje de bins: la consulta solo devuelve los rangos CON
 // canciones (GROUP BY sin generate_series ni VALUES). Con el catálogo
-// vacío devuelve 0 filas, no 8 filas en 0 — el P9 ("los 8 rangos en 0")
+// vacío devuelve 0 filas, no 9 filas en 0 — el P9 ("los 9 rangos en 0")
 // describe el modelo del frontend, no el endpoint; el frontend lo cubre
 // con el fallback 'Sin datos todavía.' (app.js).
 ok(!/generate_series|VALUES\s*\(/i.test(histSql) && appJsSrc.includes('Sin datos todavía.'),
@@ -348,35 +359,54 @@ ok(enOrden(dDesc, ['COALESCE(ritmo,0)*0.35 + COALESCE(letras,0)*0.25 + COALESCE(
   'DESEMPATE main.cpp: orden cerrado base → Importancia → bonos → Descubrimiento → Coro → Ritmo → Letra → id ASC');
 ok(enOrden(dAsc, ['COALESCE(ritmo,0)*0.35 + COALESCE(letras,0)*0.25 + COALESCE(coro,0)*0.40) ASC', 'COALESCE(importancia,0) ASC', 'SUMA_BONOS', 'COALESCE(descubrimiento_terceros,false) ASC', 'COALESCE(coro,0) ASC', 'COALESCE(ritmo,0) ASC', 'COALESCE(letras,0) ASC', 'id DESC']),
   'DESEMPATE_ASC main.cpp: espejo exacto (mismos criterios ASC, id DESC)');
-ok(appJsSrc.includes("if (nota >= 19) { colorBase = '#22c55e'") && appJsSrc.includes("else if (nota >= 18) { colorBase = '#d946ef'") && appJsSrc.includes("else if (nota >= 17.8) { colorBase = '#8b5cf6'"),
-  'color fila app.js: umbrales de categoría (≥19 verde, ≥18 fuchsia, ≥17.8 violeta, resto cian)');
-ok(appJsSrc.includes("grad('#22d3ee', '#8b5cf6', 17.8, 0.3)") && appJsSrc.includes("grad('#d946ef', '#22c55e', 19, 0.5)") && appJsSrc.includes("grad('#8b5cf6', '#d946ef', 18)"),
-  'color fila app.js: ventanas de rampa (17.5–17.8 ancho 0.3; 18.5–19 ancho 0.5; 17.8–18 ancho 0.2)');
+ok(appJsSrc.includes('colorBase = colorPorNota(nota);') && appJsSrc.includes('alfaGlow = alfaGlowGod(nota);') && appJsSrc.includes('else if (nota >= 18) alfaGlow = 0.40;') && appJsSrc.includes('else if (nota >= 17.8) alfaGlow = 0.35;'),
+  'color fila app.js: paleta G (colorPorNota; alfaGlowGod para GOD, 0.40 turquesa, 0.35 azul)');
+ok(appJsSrc.includes('function tonoPorNota(nota)') && appJsSrc.includes('(nota - 17.5) / 0.3') && appJsSrc.includes('(nota - 17.8) / 0.2') && appJsSrc.includes('(nota - 18.5) / 0.5'),
+  'color fila app.js: rampas de tono (17.5–17.8 violeta→azul, 17.8–18 azul→turquesa, 18.5–19 turquesa→verde)');
+ok(!appJsSrc.includes('aplicarPalidoYBrillo') && !appJsSrc.includes('mPalido') && !appJsSrc.includes('1.17 - 0.45') && !appJsSrc.includes("grad('#22d3ee'"),
+  'color fila app.js: sin restos del pálido/factor f (sin aplicarPalidoYBrillo, mPalido, 1.17-0.45 ni grad cian)');
 ok(appJsSrc.includes("if (nota > 0 && rank > 10 && rank <= 20) { colorBase = mezcla(0.9 * suave((20 - rank) / 9), colorBase, '#facc15')") && appJsSrc.includes("if (nota > 0 && rank <= 10) { colorBase = '#facc15'"),
   'color fila app.js: dorado solo Top 10 global con nota > 0; puestos 11–20 mezclan 0–90% hacia dorado');
 ok(appJsSrc.includes("if (rango === 'sin_calificar') rangoFiltro = [0, 0];") && appJsSrc.includes("else if (rango === 'menos-10') rangoFiltro = [0.01, 9.99];") && appJsSrc.includes('rangoFiltro = [a, b >= 20 ? 20 : b - 0.01];'),
   'filtrarRango app.js: rangos reales ([0,0], [0.01,9.99], [a,b-0.01] con 20 entero) — mismos que el espejo `filtro`');
-ok(['10-12', '12-14', '14-16', '16-18', '18-19', '19-20', 'sin_calificar', 'menos-10'].every(r => appJsSrc.includes("'" + r + "':")),
-  'colorBarra del histograma (app.js) cubre los 8 rangos');
+ok(['10-12', '12-14', '14-16', '16-17.8', '17.8-18', '18-19', '19-20', 'sin_calificar', 'menos-10'].every(r => appJsSrc.includes("'" + r + "':")),
+  'colorBarra del histograma (app.js) cubre los 9 rangos');
+// colorBarra usa colorPorNota en el punto medio de cada bin (paleta G
+// exacta por bisección, no colores planos aproximados): ancla el texto
+// real de app.js y comprueba los hex contra el colorPorNota extraído.
+// La barra 19-20 es el verde GOD (#0c934f), NO el brillante
+// #16a34a de antes; la 17.8-18 es azul (#1292db, punto medio de la
+// rampa azul→turquesa en 17.9, tono ~202°): el azul puro 220° solo existe en
+// 17.80 exacto, así que el promedio honesto del bin es azul ~202°.
+const colorBarraTxt = appJsSrc.slice(appJsSrc.indexOf('const colorBarra ='), appJsSrc.indexOf(';', appJsSrc.indexOf('const colorBarra =')));
+ok(colorBarraTxt.includes("'10-12': colorPorNota(11)") && colorBarraTxt.includes("'12-14': colorPorNota(13)")
+  && colorBarraTxt.includes("'14-16': colorPorNota(15)") && colorBarraTxt.includes("'16-17.8': colorPorNota(16.9)")
+  && colorBarraTxt.includes("'17.8-18': colorPorNota(17.9)") && colorBarraTxt.includes("'18-19': colorPorNota(18.5)")
+  && colorBarraTxt.includes("'19-20': colorPorNota(19.5)") && colorBarraTxt.includes("'menos-10': colorPorNota(9)")
+  && colorBarraTxt.includes("'sin_calificar': '#6b7280'") && !colorBarraTxt.includes('#16a34a') && !colorBarraTxt.includes('linear-gradient'),
+  'colorBarra del histograma (app.js) usa colorPorNota en los puntos medios, sin #16a34a ni linear-gradient');
+ok(colorPorNota(9) === '#d0a8f8' && colorPorNota(11) === '#cca2f7' && colorPorNota(13) === '#c593f6' && colorPorNota(15) === '#bd84f5'
+  && colorPorNota(16.9) === '#b474f4' && colorPorNota(17.9) === '#1292db' && colorPorNota(18.5) === '#0c9797' && colorPorNota(19.5) === '#0c934f',
+  `colorBarra: hex exactos por punto medio (menos-10 ${colorPorNota(9)}, 10-12 ${colorPorNota(11)}, 12-14 ${colorPorNota(13)}, 14-16 ${colorPorNota(15)}, 16-17.8 ${colorPorNota(16.9)}, 17.8-18 ${colorPorNota(17.9)}, 18-19 ${colorPorNota(18.5)}, 19-20 ${colorPorNota(19.5)}); 19-20 GOD #0c934f, no #16a34a`);
 const swJsR2 = fs.readFileSync(BASE + 'public/sw.js', 'utf8');
 ok(swJsR2.includes("'/index.html'") && swJsR2.includes("'/app.js'") && swJsR2.includes("'/'"),
   'sw.js precachea /, /index.html y /app.js (además del manifiesto e iconos)');
 
 // ---------- 6. Auditoría final ----------
-// grad(): rampa 0-90% con smoothstep. Al entrar en la ventana (umbral -
-// ancho exacto) mezcla 0% (color puro, sin salto); a mitad de ventana
-// suave(0.5)=0.5, o sea 45%; cerca del umbral llega a ~90%.
-// Anchos: 0.3 antes de 17.8 (17.5-17.8, aprobado 2026-11-15; antes 0.8),
-// 0.5 antes de 19; 0.2 antes de 18 (el umbral anterior esta a solo
-// 0.2, no cabe mas).
-// gradFactor es el MODELO esperado (no una copia de app.js): se compara
-// contra grad() extraído en la sección 12 (P5).
-const gradFactor = (nota, umbral, ancho = 0.2) => (nota < umbral - ancho || nota >= umbral) ? null : 0.9 * suave((nota - (umbral - ancho)) / ancho);
+// tonoPorNota(): rampas de tono de la paleta G (2026-11-16) con
+// smoothstep al 90%: violeta 270° hasta 17.5, rampa a azul 220° en
+// 17.5–17.8, rampa a turquesa 180° en 17.8–18, turquesa fijo hasta 18.5,
+// rampa a verde 150° en 18.5–19, verde fijo desde 19.
+// (Antes: gradFactor, modelo de la rampa 0-90% de grad(); eliminado
+// con la paleta anterior; la G es espectral Dorado→Verde→Turquesa→Azul→Violeta.)
 const cerca = (a, b) => Math.abs(a - b) < 1e-9;
-ok(gradFactor(17.8, 18) === 0 && gradFactor(18.5, 19, 0.5) === 0 && gradFactor(17.5, 17.8, 0.3) === 0, 'grad() en el inicio de la ventana: 17.80, 18.50 y 17.50 mezclan 0% (sin salto)');
-ok(cerca(gradFactor(17.9, 18), 0.45) && cerca(gradFactor(18.75, 19, 0.5), 0.45) && cerca(gradFactor(17.65, 17.8, 0.3), 0.45) && cerca(gradFactor(18.99, 19, 0.5), 0.8989344), 'grad() a mitad de ventana: 17.90, 18.75 y 17.65 = 45%; 18.99 = 89.89%');
-ok(gradFactor(18.0, 18) === null && gradFactor(19.0, 19) === null, 'grad() en el umbral: sin mezcla (color pleno de la categoría)');
-ok(gradFactor(17.49, 17.8, 0.3) === null && gradFactor(18.49, 19, 0.5) === null, 'grad() antes de la ventana: 17.49 y 18.49 sin mezcla (color pleno)');
+ok(tonoPorNota(10.05) === 270 && tonoPorNota(17.5) === 270, 'tonoPorNota: violeta 270° en nota baja (10.05) y en 17.50 (inicio de la primera rampa)');
+ok(cerca(tonoPorNota(17.65), 247.5), 'tonoPorNota: 17.65 a mitad de la rampa violeta→azul = 247.5° (270 − 50·0.9·suave(0.5))');
+ok(tonoPorNota(17.8) === 220, 'tonoPorNota: 17.80 = azul 220° (fin de la primera rampa)');
+ok(cerca(tonoPorNota(17.9), 202), 'tonoPorNota: 17.9 a mitad de la rampa azul→turquesa = 202° (220 − 40·0.9·suave(0.5))');
+ok(tonoPorNota(18) === 180, 'tonoPorNota: 18.00 = turquesa 180° (fin de la segunda rampa)');
+ok(cerca(tonoPorNota(18.75), 166.5), 'tonoPorNota: 18.75 a mitad de la rampa turquesa→verde = 166.5° (180 − 30·0.9·suave(0.5))');
+ok(tonoPorNota(19) === 150 && tonoPorNota(19.6) === 150, 'tonoPorNota: verde 150° desde 19.00 (19.00 y 19.60)');
 // Filtro guardado (auditoría G, ronda 1): los géneros heredados con canciones
 // (Hip Hop, Otro, OST) se aceptan — antes se reseteaban a 'todos' y las 79
 // canciones no se podían filtrar por su género hasta la fase DB. Un valor
@@ -397,37 +427,81 @@ ok(JSON.stringify(visiblesChips('Hip Hop', { Pop: 130, Rap: 182, 'Hip Hop': 39 }
 ok(JSON.stringify(visiblesChips('Por clasificar', { Pop: 130, Rap: 182, 'Por clasificar': 36 })) === JSON.stringify(['todos', 'Rap', 'Pop', 'Por clasificar']), 'chips con activo fuera del top 3: el activo queda visible');
 
 
-// ---------- 7. Auditoría F: color de fila completo (funciones extraídas de app.js, P1) ----------
-// colorFila vive en la sección 0 (espejo de app.js con grad/mezcla/suave
-// extraídos); aquí solo se comprueban sus valores.
+// ---------- 7. Color de fila completo — paleta G (funciones extraídas de app.js, P1) ----------
+// colorFila vive en la sección 0 (espejo de app.js con colorPorNota/
+// mezcla/suave extraídos, paleta G); aquí solo se comprueban sus valores.
 const sinNaN = s => typeof s === 'string' && !/NaN/.test(s) && s.match(/\d+/g).every(n => +n >= 0 && +n <= 255);
 ok(colorFila(19.6, 1) === '#facc15', 'color fila: 19.60 puesto 1 = dorado pleno');
 ok(colorFila(18.9, 3) === '#facc15', 'color fila: 18.9 puesto 3 = dorado pleno (dorado SOLO por puesto, sin exigir ≥19)');
-ok(colorFila(18.9, 25) === mezcla(0.8064, '#d946ef', '#22c55e'), 'color fila: 18.9 puesto 25 = fuchsia→verde al 80.64% (rampa 0-90% con suave: t=0.8)');
-// En 17.80 exacto empieza la ventana del umbral 18 (0% violeta→fuchsia):
-// el umbral violeta es >= 17.8 (decisión de Nova 2026-11-16), así que
-// 17.80 entra en la rama violeta directamente. Ya no hay salto: en
-// 17.79 la fila es ~90% violeta y en 17.80 es violeta puro (el 10% de
-// cian que quedaba se va, sin brinco a 50%).
-ok(colorFila(17.8, 100) === mezcla(0, '#8b5cf6', '#d946ef'), 'color fila: 17.80 puesto 100 = violeta puro (inicio de la ventana del 18, 0%)');
-ok(colorFila(17.79, 100) === mezcla(0.8970666666666667, '#22d3ee', '#8b5cf6'), 'color fila: 17.79 puesto 100 = cian→violeta al 89.71% (rampa 0-90% con suave: t=0.9667)');
-ok(colorFila(10.05, 677) === '#22d3ee', 'color fila: 10.05 puesto 677 = cian pleno');
-ok(colorFila(19.38, 11) === mezcla(0.9, '#22c55e', '#facc15'), 'color fila: 19.38 puesto 11 = verde→dorado al 90% (tope 90%)');
-ok(colorFila(19.38, 20) === mezcla(0, '#22c55e', '#facc15'), 'color fila: 19.38 puesto 20 = verde puro (rampa por puesto empieza en 0%)');
+ok(aHex(colorFila(18.9, 25)) === '#0c975f', 'color fila: 18.9 puesto 25 = turquesa→verde (paleta G)');
+// 17.80 exacto es azul puro (tono 220°, bisección); en 17.79 el tono ya
+// está al ~90% hacia azul en la rampa violeta→azul, distinto de 17.80.
+ok(aHex(colorFila(17.8, 100)) === '#5488f1', 'color fila: 17.80 puesto 100 = azul puro (tono 220°, bisección)');
+ok(aHex(colorFila(17.79, 100)) === '#6386f2', 'color fila: 17.79 puesto 100 = violeta→azul al ~90%, distinto de 17.80');
+ok(aHex(colorFila(10.05, 677)) === '#d0a8f8', 'color fila: 10.05 puesto 677 = violeta (nota baja clara dentro de la escala, brillo invertido)');
+ok(aHex(colorFila(19.38, 11)) === '#f8f10b', 'color fila: 19.38 puesto 11 = verde → dorado al 90% (tope 90%)');
+ok(aHex(colorFila(19.38, 20)) === '#0c9350', 'color fila: 19.38 puesto 20 = verde (rampa por puesto en 0%)');
 if (tieneDatos) {
-  // Ventanas 0-90% (2026-11-14): cuántas canciones reales caen en cada ventana nueva.
+  // Ventanas de tono (paleta G, 2026-11-16): cuántas canciones reales caen en cada ventana.
   const enV = (a, b) => C.filter(c => c.calificacion_final >= a && c.calificacion_final < b).length;
   const vA = enV(17.5, 17.8), vC = enV(18.5, 19), vB = enV(17.8, 18);
-  console.log(`  ventanas: cian→violeta [17.5,17.8): ${vA} canc., violeta→fuchsia [17.8,18): ${vB} canc., fuchsia→verde [18.5,19): ${vC} canc.`);
+  console.log(`  ventanas: violeta→azul [17.5,17.8): ${vA} canc., azul→turquesa [17.8,18): ${vB} canc., turquesa→verde [18.5,19): ${vC} canc.`);
   ok(vA > 0 && vC > 0 && vB > 0, `[datos reales] ventanas con canciones reales: A=${vA}, B=${vB}, C=${vC} (todas > 0)`);
 } else skip('ventanas con canciones reales (sin public/datos-reales.json)');
-ok(colorFila(17.5, 100) === mezcla(0, '#22d3ee', '#8b5cf6') && colorFila(18.5, 100) === mezcla(0, '#d946ef', '#22c55e'), 'color fila: 17.50 y 18.50 = inicio de ventana, color puro (0%)');
-// Puesto 15 con 18.9: su color propio es fuchsia→verde (62.5%) y desde ahí
+ok(aHex(colorFila(17.5, 100)) === '#b16ef3' && aHex(colorFila(18.5, 100)) === '#0c9797', 'color fila: 17.50 y 18.50 = inicio de ventana: solo bisección, sin mezcla de rampa');
+// Puesto 15 con 18.9: su color propio es colorPorNota(18.9) y desde ahí
 // mezcla hacia el dorado. Sin el soporte rgb en hexAHsl esto daba NaN.
 const c15 = colorFila(18.9, 15);
-const c15esp = mezcla(0.5248, mezcla(0.8064, '#d946ef', '#22c55e'), '#facc15');
-ok(sinNaN(c15) && c15 === c15esp, `color fila: 18.9 puesto 15 = mezcla desde su propio color hacia dorado (${c15}, sin NaN)`);
+const c15esp = mezcla(0.9 * suave((20 - 15) / 9), colorPorNota(18.9), '#facc15');
+ok(sinNaN(c15) && c15 === c15esp, `color fila: 18.9 puesto 15 = mezcla desde su propio color hacia dorado (${c15}, sin NaN; literal #4fd20a)`);
 ok(sinNaN(mezcla(0.5, 'rgb(217,70,239)', '#facc15')), 'mezcla desde un color rgb(...): sin NaN');
+// 2026-11-16 (paleta G + bisección, 60 iteraciones): los 12 colores de muestra fijados
+// como literales hex (referencia del mockup; la implementación debe
+// reproducirlos exactos).
+const MUESTRAS_COLOR = [
+  [10.05, '#d0a8f8'], [12.48, '#c798f7'], [14, '#c18cf6'], [16.21, '#b77bf4'],
+  [17.48, '#b16ff3'], [17.56, '#a872f4'], [17.69, '#7d80f4'], [17.98, '#0d98a5'],
+  [18.35, '#0c9898'], [18.41, '#0c9797'], [18.77, '#0c9774'], [19.1, '#0c9551'],
+];
+for (const [n, esp] of MUESTRAS_COLOR) ok(aHex(colorFila(n, 100)) === esp, `color fila [muestra 2026-11-16]: nota ${n} = ${esp} (paleta G + bisección)`);
+// Brillo INVERTIDO por luminancia Y (WCAG, no L): la luminancia relativa
+// baja al subir la nota, en violeta, azul, turquesa y verde (decisión de Nova
+// 2026-11-16: oscuro = nota alta, claro = nota baja).
+const lum = c => { const h = aHex(c); return luminanciaRelativa(parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)); };
+ok(lum(colorFila(10.05, 677)) > lum(colorFila(17.48, 677)), 'color fila [brillo invertido]: Y de 10.05 mayor que Y de 17.48 (violeta, nota baja más luminosa)');
+ok(lum(colorFila(18, 100)) > lum(colorFila(18.49, 100)), 'color fila [brillo invertido]: Y de 18.00 mayor que Y de 18.49 (turquesa)');
+ok(lum(colorFila(17.8, 100)) > lum(colorFila(17.99, 100)), 'color fila [brillo invertido]: Y de 17.80 mayor que Y de 17.99 (azul)');
+ok(lum(colorFila(19, 100)) > lum(colorFila(19.6, 100)), 'color fila [brillo invertido]: Y de 19.00 mayor que Y de 19.60 (verde GOD)');
+ok(MUESTRAS_COLOR.every(([n], i) => i === 0 || lum(colorFila(MUESTRAS_COLOR[i - 1][0], 100)) > lum(colorFila(n, 100))), 'color fila [brillo invertido]: Y estrictamente decreciente al subir la nota en las 12 muestras');
+// Sin gris (paleta G): la saturación nunca baja de 0.70 en las muestras
+// (la bisección fija S 0.85; las transiciones nunca pasan por el gris).
+ok(MUESTRAS_COLOR.every(([n]) => hexAHsl(colorFila(n, 100))[1] >= 0.70), 'color fila [sin gris]: S ≥ 0.70 en las 12 muestras (paleta G, S 0.85 por bisección)');
+// MONACO verde-turquesa: 18.77 tiene tono entre 150° y 175° (verde-turquesa,
+// no azul) y no es el azul viejo #2a73e4 ni gris.
+ok(hexAHsl(colorFila(18.77, 100))[0] >= 150 && hexAHsl(colorFila(18.77, 100))[0] <= 175 && aHex(colorFila(18.77, 100)) !== '#2a73e4', 'color fila [MONACO verde-turquesa]: 18.77 con tono 150–175° (verde-turquesa, no azul #2a73e4 ni gris)');
+// Unforgettable turquesa/cian: 17.98 tiene tono entre 170° y 190°.
+ok(hexAHsl(colorFila(17.98, 100))[0] >= 170 && hexAHsl(colorFila(17.98, 100))[0] <= 190, 'color fila [Unforgettable turquesa]: 17.98 con tono 170–190° (turquesa/cian)');
+// GOD 19.00 menos luminoso que MONACO 18.77 (la escala Y sigue bajando).
+ok(lum(colorFila(19, 100)) < lum(colorFila(18.77, 100)), 'color fila [GOD < MONACO]: Y de 19.00 menor que Y de 18.77');
+// GOD 19.00 distinto de Yo soy libre 19.10 (sin colisión en el borde).
+ok(aHex(colorFila(19, 100)) !== aHex(colorFila(19.1, 100)), 'color fila [GOD ≠ 19.10]: 19.00 #0c9751 distinto de 19.10 #0c9551');
+// Carmen no más clara que Provenza: 17.56 (ya en rampa violeta→azul) es
+// menos luminosa que 17.48 (violeta puro).
+ok(lum(colorFila(17.56, 100)) < lum(colorFila(17.48, 100)), 'color fila [Carmen/Provenza]: Y de 17.56 menor que Y de 17.48 (Carmen no más clara que Provenza)');
+// Andrea ≠ De carolina: 18.35 y 18.41 no colisionan en el mismo hex.
+ok(aHex(colorFila(18.35, 100)) !== aHex(colorFila(18.41, 100)), 'color fila [Andrea ≠ De carolina]: 18.35 #0c9898 distinto de 18.41 #0c9797');
+// Glow GOD (jerarquía, espejo alfaGlowFila): dorado 0.70 > GOD variable
+// 0.45 (19.00) → 0.60 (19.60) > turquesa fijo 0.40 > azul fijo 0.35
+// > violeta fijo 0.30. El glow variable es SOLO para GOD.
+ok(alfaGlowFila(19, 100) === 0.45, 'glow GOD: 19.00 → alfa 0.45 (mínimo GOD)');
+ok(alfaGlowFila(19.6, 100) === 0.60, 'glow GOD: 19.60 → alfa 0.60 (máximo GOD)');
+ok(cerca(alfaGlowFila(19.1, 100), 0.475), 'glow GOD: 19.10 → alfa 0.475 (0.45 + 0.15·(0.1/0.6))');
+ok(alfaGlowFila(19, 100) > alfaGlowFila(18.99, 100), 'glow GOD: 19.00 (0.45) por encima del cian fijo 0.40 de 18.99');
+ok(alfaGlowFila(19.6, 100) < 0.70, 'glow GOD: 19.60 (0.60) por debajo del dorado 0.70');
+ok(alfaGlowFila(18.5, 100) === 0.40 && alfaGlowFila(17.9, 100) === 0.35 && alfaGlowFila(10.05, 100) === 0.30, 'glow fijo por banda: turquesa 0.40 (18.50), azul 0.35 (17.90), violeta 0.30 (10.05)');
+ok(alfaGlowFila(19.6, 1) === 0.70, 'glow dorado: 19.60 puesto 1 → alfa 0.70 (Top 10 dorado, el más fuerte, aunque la nota sea GOD)');
+// Dorado Top 10 sin tocar: el brillo por nota no se aplica al dorado.
+ok(colorFila(17, 5) === '#facc15', 'color fila [dorado intacto]: 17.00 puesto 5 = dorado pleno (brillo por nota no toca el Top 10)');
 // Ronda 1: paginación y botones grandes con mínimo 44px táctiles.
 const appJs = appJsSrc;
 const idxHtml = fs.readFileSync(BASE + 'public/index.html', 'utf8');
@@ -741,17 +815,21 @@ ok(redondeoExacto(total1000(casoBinario)) === 18.03 && Math.round(calc(casoBinar
   'P4 [invariante] redondeo .xx5 con trampa binaria: exacto 18.025 → 18.03, pero el double ingenuo da 18.02 (por eso el harness compara en milésimas enteras)');
 
 // ---------- 12. P5 — bordes de rampa [invariante] ----------
-// grad() extraído de app.js; gradNota fija notaColor antes de cada llamada.
-// Factores: 17.79 → t=0.9667, suave=0.99674, 89.71%; 17.99 → t=0.95,
-// suave=0.99275, 89.35% (~90%); 18.99 → t=0.98, suave=0.998816, 89.89%.
-ok(gradNota(17.50, '#22d3ee', '#8b5cf6', 17.8, 0.3) === mezcla(0, '#22d3ee', '#8b5cf6'), 'P5 [invariante] rampa 17.50 → 0% (cian puro, inicio de la ventana 17.5–17.8)');
-ok(gradNota(17.79, '#22d3ee', '#8b5cf6', 17.8, 0.3) === mezcla(0.9 * suave((17.79 - 17.5) / 0.3), '#22d3ee', '#8b5cf6'), 'P5 [invariante] rampa 17.79 → 89.71% cian→violeta');
-ok(gradNota(17.80, '#8b5cf6', '#d946ef', 18) === mezcla(0, '#8b5cf6', '#d946ef'), 'P5 [invariante] rampa 17.80 → violeta puro (inicio de la ventana del 18, 0%)');
-ok(gradNota(17.99, '#8b5cf6', '#d946ef', 18) === mezcla(0.9 * suave(0.95), '#8b5cf6', '#d946ef'), 'P5 [invariante] rampa 17.99 → 89.35% violeta→fuchsia (~90%)');
-ok(colorFila(18.00, 100) === '#d946ef', 'P5 [invariante] rampa 18.00 → fuchsia puro (en el umbral, sin mezcla)');
-ok(gradNota(18.50, '#d946ef', '#22c55e', 19, 0.5) === mezcla(0, '#d946ef', '#22c55e'), 'P5 [invariante] rampa 18.50 → 0% (fuchsia puro, inicio de la ventana 18.5–19)');
-ok(gradNota(18.99, '#d946ef', '#22c55e', 19, 0.5) === mezcla(0.9 * suave(0.98), '#d946ef', '#22c55e'), 'P5 [invariante] rampa 18.99 → 89.89% fuchsia→verde (~90%)');
-ok(colorFila(19.00, 100) === '#22c55e', 'P5 [invariante] rampa 19.00 → verde puro (en el umbral, sin mezcla)');
+// Bordes de rampa de TONO (tonoPorNota, paleta G): ya no hay mezcla RGB
+// entre dos colores (grad/gradNota se eliminaron con la paleta vieja).
+// Las rampas mueven el TONO con tope 90% de la distancia al tono destino:
+// 17.5–17.8 violeta 270°→azul 220°, 17.8–18 azul 220°→turquesa 180°,
+// 18.5–19 turquesa 180°→verde 150°. Los factores 89.71%/89.35%/89.89%
+// (0.9·suave(t) en cada borde) ya no aplican como mezcla RGB: ahora son
+// la posición en la rampa de tono (≈225.15°, ≈184.26° y ≈153.03°).
+ok(tonoPorNota(17.5) === 270, 'P5 [invariante] rampa 17.50 → 270° (violeta puro, inicio de la ventana 17.5–17.8)');
+ok(cerca(tonoPorNota(17.79), 270 - 50 * 0.9 * suave((17.79 - 17.5) / 0.3)), 'P5 [invariante] rampa 17.79 → ≈225.15° (violeta→azul al ~90%)');
+ok(tonoPorNota(17.8) === 220, 'P5 [invariante] rampa 17.80 → 220° (azul puro, inicio de la ventana del 18)');
+ok(cerca(tonoPorNota(17.99), 220 - 40 * 0.9 * suave((17.99 - 17.8) / 0.2)), 'P5 [invariante] rampa 17.99 → ≈184.26° (azul→turquesa al ~90%)');
+ok(aHex(colorFila(18.00, 100)) === '#0c9a9a', 'P5 [invariante] rampa 18.00 → turquesa puro (en el umbral, sin mezcla de rampa)');
+ok(tonoPorNota(18.5) === 180, 'P5 [invariante] rampa 18.50 → 180° (turquesa puro, inicio de la ventana 18.5–19)');
+ok(cerca(tonoPorNota(18.99), 180 - 30 * 0.9 * suave((18.99 - 18.5) / 0.5)), 'P5 [invariante] rampa 18.99 → ≈153.03° (turquesa→verde al ~90%)');
+ok(aHex(colorFila(19.00, 100)) === '#0c9751', 'P5 [invariante] rampa 19.00 → verde puro (en el umbral, sin mezcla de rampa)');
 // Nota 0 con puesto 1: sin dorado en NINGÚN elemento. colorBase es gris
 // (el dorado exige nota > 0, app.js) y el tinte/brillo se derivan de
 // colorBase con rgbaDesde, así que tampoco pueden ser dorados.
@@ -759,9 +837,9 @@ const c0 = colorFila(0, 1);
 ok(c0 === '#6b7280', 'P5 [invariante] nota 0 puesto 1: colorBase gris #6b7280, NO dorado');
 ok(!rgbaDesde(c0, 0.33).includes('250,204,21') && !rgbaDesde(c0, 0.6).includes('250,204,21'), 'P5 [invariante] nota 0 puesto 1: ni el tinte (0.33) ni el brillo (0.6) derivados con rgbaDesde son dorados');
 ok(colorFila(19.60, 10) === '#facc15', 'P5 [invariante] puesto 10 → dorado pleno');
-ok(colorFila(19.60, 20) === mezcla(0, '#22c55e', '#facc15'), 'P5 [invariante] puesto 20 → 0% hacia dorado (verde puro)');
-ok(colorFila(19.60, 21) === '#22c55e', 'P5 [invariante] puesto 21 → sin mezcla (verde puro, fuera del Top 20)');
-ok(colorFila(19.60, 25) === '#22c55e', 'P5 [invariante] 19.60 puesto 25 → verde puro (sin dorado fuera del Top 20)');
+ok(aHex(colorFila(19.60, 20)) === '#0c924f', 'P5 [invariante] puesto 20 → 0% hacia dorado (verde con brillo invertido)');
+ok(aHex(colorFila(19.60, 21)) === '#0c924f', 'P5 [invariante] puesto 21 → sin mezcla (verde con brillo invertido, fuera del Top 20)');
+ok(aHex(colorFila(19.60, 25)) === '#0c924f', 'P5 [invariante] 19.60 puesto 25 → verde con brillo invertido (sin dorado fuera del Top 20)');
 
 // ---------- 13. P6 — cadena sintética de desempate [invariante] ----------
 // 8 canciones con calificacion_final 19.00; cada pareja adyacente empata
@@ -865,11 +943,11 @@ const statsDe = canciones => {
 };
 ok(JSON.stringify(statsDe([])) === JSON.stringify({ total: 0, promedio: 0, obras_maestras: 0, sin_calificar: 0, mediana: 0, minimo: 0, maximo: 0 }),
   'P9 [invariante] stats con catálogo vacío: todo 0 (COALESCE en main.cpp, sin NaN ni null)');
-// Histograma con 0 canciones: los 8 bins en 0.
-const binsVacios = { 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 };
+// Histograma con 0 canciones: los 9 bins en 0.
+const binsVacios = { 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-17.8': 0, '17.8-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 };
 for (const c of []) binsVacios[binSql(c.calificacion_final)]++;
-ok(JSON.stringify(binsVacios) === JSON.stringify({ 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 }),
-  'P9 [invariante] histograma con catálogo vacío: los 8 rangos en 0');
+ok(JSON.stringify(binsVacios) === JSON.stringify({ 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-17.8': 0, '17.8-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 }),
+  'P9 [invariante] histograma con catálogo vacío: los 9 rangos en 0');
 // Exportar con 0 canciones: JSON [] y CSV con la cabecera sola.
 ok(JSON.stringify([]) === '[]', 'P9 [invariante] exportar JSON con 0 canciones: [] (sin canciones, sin error)');
 ok(Object.keys([][0] || { id: 0 }).join(',') === 'id', 'P9 [invariante] exportar CSV con 0 canciones: cabecera sola "id" (fallback canciones[0] || {id:0}, app.js:433)');
@@ -1095,8 +1173,8 @@ ok((appJs.match(/showToast\('GUARDANDO…'\)/g) || []).length === 2,
 // implícito (colorFila(19.00) en la sección 12 y el bin 19-20 = 76 en la
 // sección 4): aquí queda fijado como obra maestra y como verde, con el
 // borde 18.99/19.00 en ambos lados.
-ok(colorFila(19.00, 100) === '#22c55e' && colorFila(18.99, 100) !== '#22c55e',
-  'R3 GOD ≥19: 19.00 → verde pleno; 18.99 sigue en transición fuchsia→verde (89.89%), NO verde pleno');
+ok(aHex(colorFila(19.00, 100)) === '#0c9751' && aHex(colorFila(18.99, 100)) !== '#0c9751',
+  'R3 GOD ≥19: 19.00 → verde con bisección; 18.99 sigue en transición turquesa→verde (89.89%), NO verde pleno');
 ok(statsDe([{ calificacion_final: 19.00 }]).obras_maestras === 1 && statsDe([{ calificacion_final: 18.99 }]).obras_maestras === 0,
   'R3 GOD ≥19: 19.00 cuenta como obra maestra en stats, 18.99 no (el umbral es ≥19, no >19)');
 if (tieneDatos) {
@@ -1395,9 +1473,8 @@ try {
   const srcCg = extraerFuncion(appJsSrc, 'cargarCatalogo', 'public/app.js');
   const srcEs = extraerFuncion(appJsSrc, 'escapeHtml', 'public/app.js');
   const srcTA = extraerFuncion(appJsSrc, 'textoArtistas', 'public/app.js');
-  const fnsC = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'grad'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
+  const fnsC = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
   sandboxCargaSrc = [
-    'let notaColor = 0, enTransicionColor = false;',
     'let reqActual = 0, paginaActualGlobal = 1, totalPaginasGlobal = 1, cancionesGlobal = [],',
     '  artistasCompletos = false, catalogoListo = false, statsListas = true, rangoFiltro = null, animacionEntradaLista = true, idSeleccionadoGlobal = null;',
     'const METRICAS = { ritmo: ["RITMO", 10], letras: ["LETRAS", 10], coro: ["CORO", 10], importancia: ["IMPORT.", 5] };',
@@ -1487,28 +1564,28 @@ pendientes.push((async () => {
 // lo notaría). El espejo se conserva y se compara contra lo real.
 let colorFilaReal;
 try {
-  const fnsColor = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'grad'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
-  const ini = appJsSrc.indexOf('notaColor = nota; enTransicionColor = false;');
+  const fnsColor = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
+  const ini = appJsSrc.indexOf('// INICIO-COLOR-G');
   const finMarc = "if (nota > 0 && rank <= 10) { colorBase = '#facc15'; glow = 'rgba(250,204,21,0.7)'; }";
   const fin = appJsSrc.indexOf(finMarc);
   if (ini === -1 || fin === -1) throw new Error('no se encontró el bloque de color de cargarCatalogo en public/app.js');
   const bloque = appJsSrc.slice(ini, fin + finMarc.length);
-  colorFilaReal = new Function('let notaColor = 0, enTransicionColor = false;\n' + fnsColor.join('\n')
+  colorFilaReal = new Function(fnsColor.join('\n')
     + '\nfunction colorFilaReal(nota, rank) {\n' + bloque + '\nreturn colorBase;\n}\nreturn colorFilaReal;')();
 } catch (e) {
   console.error('FALLO DE EXTRACCIÓN (R4-M1): color de fila real: ' + e.message);
   process.exit(1);
 }
-ok(colorFilaReal(19.00, 100) === '#22c55e' && colorFilaReal(18.99, 100) !== '#22c55e',
-  'R4-M1 color REAL: 19.00 → verde pleno; 18.99 sigue en transición (el umbral es >= 19 en el código real, no en un espejo)');
-ok(colorFilaReal(18.00, 100) === '#d946ef' && colorFilaReal(17.99, 100) !== '#d946ef',
-  'R4-M1 color REAL: 18.00 → fuchsia pleno; 17.99 sigue en transición violeta→fuchsia (umbral >= 18)');
-ok(colorFilaReal(17.80, 100) === mezcla(0, '#8b5cf6', '#d946ef') && colorFilaReal(17.79, 100) !== mezcla(0, '#8b5cf6', '#d946ef'),
-  'R4-M1 color REAL: 17.80 → violeta puro (inicio de ventana del 18); 17.79 en transición cian→violeta (umbral ≥ 17.8)');
-ok(colorFilaReal(18.9, 3) === '#facc15' && colorFilaReal(0, 100) === '#6b7280' && colorFilaReal(10.05, 678) === '#22d3ee',
-  'R4-M1 color REAL: dorado solo por puesto (18.9 puesto 3), gris sin calificar, cian 10.05 puesto 678');
-ok(enOrden(appJsSrc, ['if (nota >= 19)', 'else if (nota >= 18)', 'else if (nota >= 17.8)', "grad('#22d3ee', '#8b5cf6', 17.8, 0.3)", "grad('#d946ef', '#22c55e', 19, 0.5)", "grad('#8b5cf6', '#d946ef', 18)", 'mezcla(0.9 * suave((20 - rank) / 9), colorBase, ']),
-  'R4-M1 ancla de texto: umbrales y ventanas en orden en app.js (>= 19, >= 18, >= 17.8; ventanas 0.3/0.5/0.2; mezcla Top 11-20)');
+ok(aHex(colorFilaReal(19.00, 100)) === '#0c9751' && aHex(colorFilaReal(18.99, 100)) !== '#0c9751',
+  'R4-M1 color REAL: 19.00 → verde GOD #0c9751; 18.99 es #0c9758 (el umbral es >= 19 en el código real, no en un espejo)');
+ok(aHex(colorFilaReal(18.00, 100)) === '#0c9a9a' && aHex(colorFilaReal(17.99, 100)) !== '#0c9a9a',
+  'R4-M1 color REAL: 18.00 → turquesa #0c9a9a; 17.99 es #0d99a4 (umbral >= 18)');
+ok(aHex(colorFilaReal(17.80, 100)) === '#5488f1' && aHex(colorFilaReal(17.79, 100)) !== '#5488f1',
+  'R4-M1 color REAL: 17.80 → azul #5488f1; 17.79 es #6386f2 (umbral ≥ 17.8)');
+ok(colorFilaReal(18.9, 3) === '#facc15' && colorFilaReal(0, 100) === '#6b7280' && aHex(colorFilaReal(10.05, 678)) === '#d0a8f8',
+  'R4-M1 color REAL: dorado solo por puesto (18.9 puesto 3), gris sin calificar, violeta 10.05 puesto 678');
+ok(enOrden(appJsSrc, ['colorBase = colorPorNota(nota);', 'alfaGlow = alfaGlowGod(nota);', 'mezcla(0.9 * suave((20 - rank) / 9), colorBase, ', "if (nota > 0 && rank <= 10) { colorBase = '#facc15'"]),
+  'R4-M1 ancla de texto: colorPorNota + alfaGlowGod + mezcla Top 11-20 + dorado Top 10, en orden en app.js');
 const notasBarrido = [0, 0.01, 10.05, 16.09, 17.49, 17.5, 17.79, 17.8, 17.81, 17.99, 18, 18.49, 18.5, 18.99, 19, 19.6, 20];
 const puestosBarrido = [1, 10, 11, 15, 20, 21, 100, 678];
 let difColor = [];
@@ -1546,12 +1623,12 @@ if (tieneDatos) {
     `[datos reales] Top 10 global intacto con 678: ${top10_678.join(',')}`);
   const rank678 = [...C678].sort(cmp).findIndex(c => c.id === 678) + 1;
   ok(rank678 > 10, `[datos reales] puesto global de la 678 = ${rank678} (fuera del Top 10, no dorada)`);
-  ok(colorFila(16.09, rank678) === '#22d3ee', 'R4 678: 16.09 fuera de ventanas = cian pleno');
-  const bins678 = { 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 };
+  ok(aHex(colorFila(16.09, rank678)) === '#b87cf4', 'R4 678: 16.09 fuera de ventanas = violeta con bisección');
+  const bins678 = { 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-17.8': 0, '17.8-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 };
   for (const c of C678) bins678[binSql(c.calificacion_final)]++;
-  ok(JSON.stringify(bins678) === JSON.stringify({ 'menos-10': 0, '10-12': 22, '12-14': 79, '14-16': 157, '16-18': 202, '18-19': 142, '19-20': 76, 'sin_calificar': 0 }),
-    '[datos reales] histograma con 678: 22/79/157/202/142/76 (bin 16-18 201→202 por la 678, igual que en vivo; el fixture de 677 sigue en 201)');
-} else skip('catálogo 678 / Top 10 / histograma 202 con datos reales (sin public/datos-reales.json)');
+  ok(JSON.stringify(bins678) === JSON.stringify({ 'menos-10': 0, '10-12': 22, '12-14': 79, '14-16': 157, '16-17.8': 186, '17.8-18': 16, '18-19': 142, '19-20': 76, 'sin_calificar': 0 }),
+    '[datos reales] histograma con 678: 22/79/157/186/16/142/76 (bin 16-17.8 185→186 por la 678, igual que en vivo; el fixture de 677 sigue en 185)');
+} else skip('catálogo 678 / Top 10 / histograma 186+16 con datos reales (sin public/datos-reales.json)');
 
 // 25e. Artistas: textoArtistas REAL extraído (como claveCancion en 23c);
 // 2 principales; productores puros 0/0; corrección 678.
@@ -1658,12 +1735,12 @@ ok(pagVacia.total_paginas === 1 && pagVacia.pagina_actual === 1 && pagVacia.canc
 ok(Math.max(1, Math.ceil(0 / 50)) === 1 && Math.max(1, Math.ceil(677 / 50)) === 14 && Math.max(1, Math.ceil(678 / 50)) === 14,
   'R4 vacío/678: total_paginas = max(1, ceil(total/50)): 0→1, 677→14, 678→14');
 const barraHist = (h, max, totalHist) => ({ pct: totalHist ? Math.round(h.total / totalHist * 100) : 0, ancho: Math.round(h.total / max * 100) });
-const histParcial = [{ rango: '19-20', total: 5 }, { rango: '16-18', total: 0 }, { rango: '10-12', total: 0 }];
+const histParcial = [{ rango: '19-20', total: 5 }, { rango: '16-17.8', total: 0 }, { rango: '10-12', total: 0 }];
 const maxHist = Math.max(1, ...histParcial.map(h => h.total));
 const totalHistParcial = histParcial.reduce((a, h) => a + h.total, 0);
 ok(histParcial.every(h => { const b = barraHist(h, maxHist, totalHistParcial); return Number.isFinite(b.pct) && Number.isFinite(b.ancho) && b.ancho >= 0 && b.ancho <= 100; }),
   'R4 histograma: bins vacíos junto a uno no vacío → pct y ancho finitos (0% sin NaN; max con piso 1 como en app.js)');
-ok(barraHist({ rango: '19-20', total: 5 }, maxHist, totalHistParcial).ancho === 100 && barraHist({ rango: '16-18', total: 0 }, maxHist, totalHistParcial).ancho === 0 && barraHist({ rango: '16-18', total: 0 }, maxHist, totalHistParcial).pct === 0,
+ok(barraHist({ rango: '19-20', total: 5 }, maxHist, totalHistParcial).ancho === 100 && barraHist({ rango: '16-17.8', total: 0 }, maxHist, totalHistParcial).ancho === 0 && barraHist({ rango: '16-17.8', total: 0 }, maxHist, totalHistParcial).pct === 0,
   'R4 histograma: bin lleno 100% de ancho, bin vacío 0% de ancho y 0% de canciones');
 ok(appJs.includes('const max = Math.max(1, ...histograma.map(h => h.total));') && appJs.includes("|| '<p class=\"text-gray-400 text-xs\">Sin datos todavía.</p>'"),
   'R4 histograma: app.js usa max con piso 1 (nunca divide por 0) y muestra "Sin datos todavía." con 0 filas del endpoint (GROUP BY sin filas con catálogo vacío)');

@@ -1,3 +1,399 @@
+## Paleta G espectral (oscurecida) aplicada — 2026-11-16
+
+Nova eligió la G 2026-11-16 23:36 ("Excelente. Aplícala toda") y pidió
+oscurecer los colores levemente para que estén más en sintonía con el
+Top. La G reemplaza la F como paleta elegida; la F queda solo como
+historial en este changelog. Solo frontend: los datos no cambiaron y
+`main.cpp` no se tocó (sin código de color; su mtime 2026-11-17 04:13
+UTC es anterior a los archivos de la G, 05:40–05:47 UTC; no hizo falta
+compilación C++). Nada en vivo, nada en el repo real.
+
+- **Escala (app.js, `colorPorNota`, marcador `// INICIO-COLOR-G`):**
+  secuencia espectral Dorado → Verde → Turquesa → Azul → Violeta,
+  tonos 270° (violeta) → 220° (azul) → 180° (turquesa) → 150°
+  (verde), S fija 0.85. Brillo INVERTIDO (oscuro = nota alta) por
+  bisección contra Y lineal **Y0 0.48 (10.05) → 0.21 (19.60),
+  pendiente 0.27** (pendiente −0.02827/nota); la F era 0.40 → 0.17.
+  Rampas 0–90% con smoothstep, ventanas 17.5–17.8 (violeta→azul),
+  17.8–18 (azul→turquesa), 18.5–19 (turquesa→verde). Top 10 dorado
+  #facc15 solo por puesto global, glow 0.70 (halo animado intacto).
+- **Bisección 50 → 60 iteraciones (motivo):** con 50 el intervalo
+  final (~15 ulp en L≈0.3) NO converge del todo y el punto medio cae
+  del lado equivocado de un borde de redondeo de canal que está a
+  <1e-15 del cruce real — 11 de 14 muestras salen 1 punto bajas
+  (p. ej. GOD 19.00 #0c9651 en vez de #0c9751, y 19.00/19.10
+  colisionan). Con 60 el intervalo es <1 ulp (convergencia total) y
+  el resultado es estable: verificado 14/14 para 54–200 iteraciones.
+- **Los 12 colores (verificados contra las funciones reales de
+  app.js, extraídas por nombre y re-derivadas):** 10.05 #d0a8f8,
+  12.48 #c798f7, 14.00 #c18cf6, 16.21 #b77bf4, 17.48 #b16ff3,
+  17.56 #a872f4, 17.69 #7d80f4, 17.98 #0d98a5, 18.35 #0c9898,
+  18.41 #0c9797, 18.77 MONACO #0c9774, 19.10 #0c9551. GOD 19.00
+  #0c9751 (Y 0.2281), GOD 19.60 #0c924f (Y 0.2120). Y estrictamente
+  decreciente en las 12 muestras (0.4819 → 0.2217); S ≥ 0.70 en las
+  12 (0.844–0.855, sin gris); MONACO tono 164.9° (150–175°),
+  Unforgettable 17.98 tono 185.1° (170–190°); GOD 19.00 Y < MONACO
+  Y (0.2281 < 0.2347); Carmen 17.56 Y < Provenza 17.48 Y
+  (0.2689 < 0.2719); Andrea 18.35 #0c9898 ≠ De carolina 18.41
+  #0c9797 (IDs 674 y 671); GOD 19.00 #0c9751 ≠ 19.10 #0c9551.
+  Nota de auditoría: un barrido fino paso 0.01 comparte hex entre
+  pasos vecinos (el paso de Y por 0.01 de nota, ~0.00028, es menor
+  que lo que mueve 1 unidad de un canal 8-bit); es cuantización,
+  no un defecto — la definición que verifica el harness es la Y
+  estrictamente decreciente en las 12 muestras, que se cumple.
+- **Histograma (9 bins, `colorPorNota` en el punto medio):**
+  menos-10 #d0a8f8, 10-12 #cca2f7, 12-14 #c593f6, 14-16 #bd84f5,
+  16-17.8 #b474f4, 17.8-18 #1292db, 18-19 #0c9797, 19-20 #0c934f,
+  sin_calificar #6b7280.
+- **Glow (jerarquía intacta):** dorado 0.70 > GOD 0.45 (19.00) →
+  0.60 (19.60) > turquesa 0.40 > azul 0.35 > violeta 0.30.
+- **Paleta de página (index.html):** fondo #040b1a, paneles
+  #0b1a33 (`.panel-fondo` con lavados azul/turquesa), pestañas
+  dorado/turquesa/azul/violeta (Top/Evaluar/Agregar/Gráficas),
+  lavados espectrales en `html` (turquesa/dorado/azul/violeta) y
+  línea/barra espectral #facc15 → #0d98a5 → #5488f1 → #b16ef3.
+  Comentario desactualizado de las líneas 103–106 ("PALETA
+  HIBRIDA ... Atardecer neon") actualizado a la G; las menciones
+  históricas a la F en comentarios de app.js ("reemplaza la F",
+  "la F era 0.40 → 0.17") se dejan como historial, no describen
+  la paleta vigente. Los nombres de clase `.linea-atardecer`,
+  `.barra-atardecer`, `.btn-atardecer` se conservan (son
+  identificadores; sus degradados ya son espectrales G).
+- **F eliminada:** grep de los 13 hex de la F (#84a9f5, #0b8940,
+  #0b853d, #0b896e, #1281de, #9f5bf2, #0d879f, #ec137f, #0a7d64,
+  #0b7bc7, #0d88a0, #0b893f, #0b853e) y de "PALETA F" /
+  "INICIO-COLOR-F" en app.js, index.html y harness-pruebas.js:
+  **0 ocurrencias** (las menciones en este REVISION.md son
+  changelog histórico).
+- **Seguridad (sin regresiones):** sin secretos hardcodeados en
+  app.js ni index.html; ADMIN_TOKEN sigue en sessionStorage con
+  cabecera X-Admin-Token (sin cambio); ningún script externo nuevo
+  (solo los preexistentes: Google Fonts, Tailwind CDN, /app.js
+  local); sin regresiones de XSS/innerHTML (los valores de usuario
+  pasan por escapeHtml; el color de fila deriva de la nota
+  numérica). Secciones de seguridad del harness en verde: G-L1,
+  R2-LOG, R3 (auth fail-closed, export público), P16.
+- **Datos (sin cambio, verificados contra datos-en-vivo.json,
+  export en vivo):** 678 canciones, Top 10 exacto vía orden=top
+  (144, 167, 213, 116, 307, 606, 348, 29, 399, 145), GOD (≥19) =
+  76, fórmula 0 fuera de ±0.01, histograma 9 bins 0/22/79/157/186/
+  16/142/76/0 (suma 678; la 678 "Freaks" 16.09 cae en 16-17.8,
+  por eso 186 frente a 185 del fixture de 677 del harness).
+- **Verificación:** `node --check` OK en app.js y
+  harness-pruebas.js; harness **465 PASS, 0 FAIL, 0 SKIP**
+  ("TODO OK", corrido 2 veces de forma independiente); auditoría
+  final independiente de la G: **0 ERRORES**.
+
+## Histograma: bins alineados a banda + colores F exactos — 2026-11-16
+
+Resuelve la observación (a) de la auditoría final pre-PR #5 (abajo):
+el histograma del código preparado usaba colores planos aproximados
+y rangos que no respetaban los límites 17.8/18/19. Solo colores y
+bins: los datos y el comportamiento ya eran correctos. Nada en vivo,
+nada en el repo real, nada en el mockup ni en la vista previa.
+
+- **Bins (9, alineados a banda):** menos-10, 10-12, 12-14, 14-16,
+  16-17.8, 17.8-18, 18-19, 19-20, sin_calificar. El bin viejo 16-18
+  se parte en 16-17.8 y 17.8-18 (corte en 17.8, límite de banda).
+  Frontera limpia: máx de 16-17.8 es 17.79 (ninguna en 17.80 exacto)
+  y las 16 de 17.8-18 son 17.81, 17.82, 17.82, 17.83, 17.84, 17.86,
+  17.87, 17.88, 17.88, 17.91, 17.91, 17.96, 17.97, 17.98, 17.98, 17.98.
+- **main.cpp** (endpoint /api/canciones/histograma): el CASE interior
+  ahora tiene `WHEN calificacion_final < 17.8 THEN '16-17.8' WHEN
+  calificacion_final < 18 THEN '17.8-18'`. Sin tocar la subconsulta
+  (fix ronda 2) ni el ORDER BY exterior: `CAST(SUBSTRING(rango FROM
+  '^[0-9]+') AS INT)` ya ordena bien ('16-17.8'→16, '17.8-18'→17).
+- **public/app.js** (cargarHistograma): `colorBarra` ya no usa hex
+  planos ni linear-gradient; cada barra llama a `colorPorNota` en el
+  punto medio de su bin. `filtrarRango` (genérico, [a, b-0.01]) sigue
+  funcionando: '16-17.8' → [16, 17.79], '17.8-18' → [17.8, 17.99];
+  las notas tienen máx 2 decimales, así que ninguna canción queda
+  fuera de su bin (el test "filtro = bin en todos los rangos" lo
+  cubre).
+- **Colores por barra (colorPorNota en el punto medio, verificados
+  contra las funciones reales de app.js):** menos-10 (9) #84a9f5,
+  10-12 (11) #7da5f4, 12-14 (13) #6d9af3, 14-16 (15) #5d8ef2,
+  16-17.8 (16.9) #4a82f0, 17.8-18 (17.9) #9f5bf2, 18-19 (18.5)
+  #0d879f, 19-20 (19.5) #0b853e, sin_calificar #6b7280 (gris, sin
+  cambio). La barra 19-20 es el verde oscuro GOD #0b853e, NO el
+  brillante #16a34a. La 17.8-18 es VIOLETA (#9f5bf2, tono ~267°):
+  es el punto medio de la rampa rosa→cian; la rosa pura solo existe
+  en 17.80 exacto, así que el promedio honesto del bin es violeta —
+  consistente con que ninguna fila se ve rosa (ya advertido a Nova).
+- **Conteos (verificados desde los datos reales):** 678 canciones
+  (datos-en-vivo.json): menos-10 0, 10-12 22, 12-14 79, 14-16 157,
+  16-17.8 186, 17.8-18 16, 18-19 142, 19-20 76, sin_calificar 0
+  (suma 678). 677 canciones (datos-reales.json, fixture): iguales
+  salvo 16-17.8: 185 (suma 677). La 678 cae en 16-17.8 (185→186).
+- **harness-pruebas.js:** binSql con el corte en 17.8, bins con las
+  9 claves, conteos 677 y 678 actualizados, ordenCase con el orden
+  nuevo, sección 5b con 9 rangos y bordes con '< 17.8', test
+  colorBarra con los 9 rangos, test de porcentajes con tolerancia
+  ±1 (con 9 bins los redondeados suman 99, no 100: 0+3+12+23+27+2+
+  21+11+0 = 99 por redondeo) y 2 tests nuevos: que colorBarra use
+  colorPorNota en los puntos medios (ancla de texto real + hex
+  exactos contra el colorPorNota extraído) y que la 19-20 sea GOD
+  #0b853e, no #16a34a.
+- **Verificación:** `node --check` OK en app.js y harness;
+  `g++ -std=c++20 -fsyntax-only` OK en main.cpp (Crow v1.3.4 +
+  asio reales + stub mínimo de pqxx en /tmp/cppcheck, efímero;
+  la compilación completa con libpqxx real sigue pendiente en
+  Docker/Render); harness **461 PASS, 0 FAIL, 0 SKIP** ("TODO OK",
+  459 de antes + 2 nuevos).
+
+## Auditoría final pre-PR #5 — 2026-11-16 (0 errores)
+
+**Nova aprobó la vista previa ("Esta perfecto") y pidió una última
+auditoría. Resultado: 0 ERRORES en el paquete preparado.** 6 oleadas
+(colores+harness, sintaxis, seguridad, datos, inspección del mockup,
+inspección de la vista previa), todas en 0 errores. No hizo falta
+corregir nada: no se modificó ningún archivo del paquete en esta
+auditoría. Harness corrido de forma independiente por 4 oleadas:
+**459 PASS, 0 FAIL, 0 SKIP** ("TODO OK") en todos los casos.
+
+- **Colores F:** 12/12 exactos contra las funciones reales de app.js
+  (bisección Y 0.400→0.17, pendiente 0.23): Y estrictamente decreciente
+  (0.3987→0.1832), S ≥ 0.849 (sin gris), MONACO 18.77 #0b896e teal
+  (167.1°), Carmen 17.56 NO más clara que Provenza 17.48, 18.35 ≠
+  18.41, GOD 19.00 #0b8940 / 19.60 #0b853d más claro y más oscuro que
+  MONACO. Glow: GOD 0.45 (19.00) → 0.60 (19.60) < dorado 0.70
+  (halo animado intacto, mezcla 11–20 intacta); fijas cian 0.40 >
+  rosa 0.35 > azul 0.30. Sin restos de grad/aplicarPalidoYBrillo/
+  mPalido/notaColor/factor f (#d946ef, #8b5cf6, #22c55e como bandas: 0).
+- **Sintaxis:** node --check OK en app.js (1207 líneas) y harness
+  (1729 líneas); C++ OK contra Crow v1.3.4 y Asio reales (el entorno
+  /tmp de la ronda 4 ya no existía; se reconstruyó en /tmp/cppcheck,
+  efímero; el stub de pqxx solo prueba sintaxis, no tipos — la
+  compilación completa con libpqxx real sigue pendiente en Docker/
+  Render, como ya estaba previsto); pglast OK en los 8 .sql
+  (830 statements, 0 errores); balance de delimitadores OK.
+- **Seguridad:** sin regresiones desde PR #4. ADMIN_TOKEN fail-closed
+  (≥24), comparación en tiempo constante, rate limits en 7 GETs +
+  escrituras (429), cuerpo 64 KB → 413, sin secretos hardcodeados,
+  sin token en logs, XSS 16/16 innerHTML seguros, CSP/HSTS/
+  Permissions-Policy en vercel.json, no-store de la API en el backend.
+  La paleta F no tocó código de seguridad.
+- **Datos:** datos-en-vivo.json (678): IDs únicos, fórmula 0 fuera de
+  ±0.01 (máx 0.005), GOD 76, promedio 16.4841, histograma
+  22/79/157/202/142/76. Desempate en main.cpp:450–466 (no en app.js,
+  que renderiza el orden del servidor): Top 10 calculado
+  independientemente [144, 167, 213, 116, 307, 606, 348, 29, 399, 145]
+  exacto. Taxonomía idéntica en app.js/main.cpp/schema.sql
+  (GENEROS 29, ETIQUETAS 11, con Lofi/Hardcore/Por clasificar).
+- **Mockup:** F es la única marcada ELEGIDA; sección 5 muestra la F
+  con el verde más clarito y el glow por calificación. Solo
+  verificación, no se tocó.
+- **Vista previa:** F correcta en la sección de ejemplo (9 canciones
+  con colores exactos) y en el Top (#1–#50 pobladas, lo que resuelve
+  la duda anterior de filas vacías); datos 678. Solo verificación,
+  no se tocó.
+
+**Pendientes (observaciones, no errores; no bloquean el PR #5):**
+(a) El histograma del código preparado (app.js, colorBarra) usa
+colores planos de la familia F (#1d4ed8, #ec137f, #0e7490, #16a34a)
+en vez de los colores F exactos por bisección, y sus rangos no
+respetan los límites 17.8/18/19 (la barra 19–20 usa verde brillante
+#16a34a en vez del verde oscuro #0b8940; la banda rosa queda diluida
+en el rango 16–18). Los datos y el comportamiento son correctos; es
+una cuestión de pulido visual. No se corrigió a ciegas: cambiarlo
+divergiría de la vista previa que Nova acaba de aprobar; queda a su
+decisión (post-PR #5 o seguimiento). (b) El mockup tiene textos
+secundarios con hex viejos de la E (bandas del encabezado, regla 1 de
+la sección 3, nota final de la sección 4) y una escala de glow más
+suave que el código (0.32–0.58 vs 0.45–0.60); la progresión y la
+jerarquía son correctas. Solo verificación, no se tocó. (c) Un
+comentario del código de la vista previa aún dice "677 canciones"
+aunque el render es 678 (cosmético). (d) Ninguna fila se ve rosa en
+la vista previa (Unforgettable 17.98 sale azul #1281de por estar al
+90% de la rampa rosa→cian), consecuencia de la rampa, ya advertida
+antes de que Nova eligiera la F. (e) REVISION.md:878/913 describe el
+estado anterior (ronda 2 dejaba salud/salud/db sin límite); hoy
+/api/salud/db SÍ tiene límite (ronda 3). Documentación histórica
+desactualizada, no el código. (f) La compilación completa con
+libpqxx real (Docker/Render) sigue pendiente, como ya estaba
+previsto; Nova la corre en su laptop antes de fusionar (precedente
+PR #4).
+
+## Aclarado del verde GOD (paleta F) — 2026-11-16
+
+**Decisión de Nova (20:58): "Siento que debería de hacer el verde más
+clarito".** Solo cambia la claridad del verde GOD, vía la escala Y. No se
+tocan: la paleta F (tonos), el glow GOD (0.45–0.60 por nota), el dorado
+(0.70, intacto), las jerarquías de glow ni las ventanas de rampa.
+
+**Nueva escala Y (lineal): 0.400 (10.05) → 0.17 (19.60), pendiente 0.23
+(−0.02408/nota).** La 0.22 (Y 0.18 en 19.60, el objetivo literal) FALLA:
+Carmen 17.56 sale más clara que Provenza 17.48 y 18.35/18.41 colisionan
+en el mismo hex — la pendiente suave comprime las diferencias de Y por
+debajo del error de cuantización del hex. La 0.23 (Y 0.17) es la más
+cercana a 0.18 que pasa todo: 12 muestras distintas, Y estrictamente
+decreciente, MONACO teal, GOD más claro que antes pero más oscuro que
+MONACO, y 19.00/19.10 distintos. El aclarado también sube un poco el
+extremo superior de las demás bandas (la escala es global); la
+monotonicidad se mantiene en todo el rango.
+
+**12 colores de referencia (verificados, nuevos):** 10.05 #84a9f5, 12.48
+#719df4, 14.00 #6595f3, 16.21 #5186f1, 17.48 #437df0, 17.56 #5f76f2,
+17.69 #cc35ef, 17.98 #1281de, 18.35 #0d88a0, 18.41 #0d879f, 18.77 #0b896e
+(teal, 167.1°), 19.10 #0b893f. Y estrictamente decreciente
+(0.3987→0.1832); S ≥ 0.85 en los 12 (mínimo 0.849); Carmen 17.56 (Y
+0.2180) NO más clara que Provenza 17.48 (Y 0.2215). Referencias puras:
+rosa 17.80 #ed278a (330°), cian oscuro 18.00 #0d8aa2 (190°), verde 19.00
+#0b8940 (145°), 19.60 #0b853d.
+
+**Verde GOD nuevo:** 19.00 #0b8940 (antes #0a7c39), 19.10 #0b893f (antes
+#0a7a39), 19.30 #0b863e, 19.55 #0b853d, 19.60 #0b853d (antes #0a7537).
+Sigue siendo la banda más oscura: Y de GOD 19.00 (0.1833) < Y de MONACO
+18.77 (0.1909).
+
+**Harness (harness-pruebas.js): 459 PASS, 0 FAIL, 0 SKIP** (verificado
+tras el cambio; 12 literales dependientes de la escala Y actualizados:
+las 12 muestras, 17.50/18.50, 18.00/19.00, 17.80/17.79, 18.99/17.99,
+19.38 puesto 11/20, 16.09 de la 678, y los 3 del verde 19.60 en P5).
+
+**Mockup:** sección F y sección 5 "La F, cerrada" actualizadas con el
+verde GOD más claro (mismo glow 0.45–0.60).
+
+## Paleta F + glow GOD variable por calificación (bisección) — 2026-11-16
+
+**Decisión de Nova (20:40): ELIGE LA F.** Paleta: Top 10 Dorado #facc15
+(solo por puesto global, sin requisito de nota); GOD ≥19 verde oscuro
+brillante; 18–19 cian oscuro; 17.8–18 rosa vívido (en vez de morado);
+banda baja (<17.8) azul profundo. Umbrales absolutos. El fuchsia y el
+violeta ya NO existen como bandas. El dorado Top 10 MANTIENE su gran
+brillo característico (halo animado 0.70, el más fuerte); no se toca.
+
+**Reemplaza:** la implementación del 18:51 (factor de brillo f + medio
+pálido), INVALIDADA por la regla de Nova "las transiciones NUNCA pasan por
+el gris" (19:07). El factor f no logra luminancia monótona con las paletas
+nuevas y el pálido pasa por gris. Se eliminan `grad`, `aplicarPalidoYBrillo`,
+`notaColor`, `enTransicionColor`, `mPalido` de app.js.
+
+**Regla de color (bisección, public/app.js):** para cada nota se fija el
+tono por rampa (HSL, camino más corto, sin desaturar, S fija 0.85) y se
+busca por bisección la luz L (50 iteraciones, L en [0.02, 0.98]) cuya
+luminancia relativa Y sea el objetivo lineal Y 0.400 (10.05) → 0.1309
+(19.60), pendiente −0.02818/nota. Tonos: azul 220°, rosa 330°, cian oscuro
+190°, verde 145°. Rampas 0–90% con smoothstep, ventanas 17.5–17.8
+(azul→rosa), 17.8–18 (rosa→cian oscuro), 18.5–19 (cian oscuro→verde).
+La lineal 0.3013→0.1258 del constructor del mockup F colisiona 18.35/18.41
+en el mismo hex; esta escala (la del coordinador de la E, extendida a
+19.60) distingue las 12 muestras y es estrictamente decreciente.
+
+**Glow (jerarquía, decisión Nova 20:45):** el glow VARIABLE por calificación
+es SOLO para GOD: `alfaGlowGod(nota)` = 0.45 en 19.00 → 0.60 en 19.60,
+lineal. Las demás bandas mantienen su glow FIJO: cian oscuro 0.40, rosa
+0.35, azul profundo 0.30. Jerarquía: dorado 0.70 (halo animado, intacto) >
+GOD 0.45–0.60 > cian oscuro 0.40 > rosa 0.35 > azul profundo 0.30. El
+mínimo GOD (0.45) queda por encima del cian fijo (0.40) para que el glow
+nunca baje al cruzar a GOD.
+
+**12 colores de referencia (verificados):** 10.05 #84a9f5, 12.48 #6e9bf3,
+14.00 #6090f2, 16.21 #467ff0, 17.48 #3473ef, 17.56 #526bf1, 17.69 #c417ec,
+17.98 #1176cd, 18.35 #0c7d93, 18.41 #0c7c92, 18.77 #0a7d64 (teal, 167°),
+19.10 #0a7a39. Y estrictamente decreciente (0.3987→0.1428); S ≥ 0.85 en
+los 12 (mínimo 0.847); Carmen 17.56 (Y 0.1866) NO más clara que Provenza
+17.48 (Y 0.1922). Referencias puras: rosa 17.80 #e3127a (330°), cian
+oscuro 18.00 #0c7f97 (190°), verde 19.00 #0a7c39 (145°), 19.60 #0a7537.
+
+**Implementación (public/app.js, 1220 → 1203 líneas):** funciones nuevas
+`luminanciaRelativa`, `yObjetivo`, `tonoPorNota`, `colorPorNota`,
+`alfaGlowGod` (literales, auto-contenidas, extraíbles por el harness).
+Bloque de color de la fila reescrito con marcador `// INICIO-COLOR-F`
+(línea 691) para la extracción real del harness. Histograma `colorBarra`
+actualizado a la paleta F (azul #1d4ed8, gradiente azul→rosa #ec137f,
+cian oscuro #0e7490, verde #16a34a). Fallback del slider `#d946ef` →
+`#0e7490`. Sin restos de `aplicarPalidoYBrillo`, `grad(`, `mPalido`,
+`notaColor`, `1.17 - 0.45`, `#d946ef`, `#8b5cf6`, `#22c55e` en app.js.
+
+**Harness (harness-pruebas.js, 1715 → 1729 líneas): 459 PASS, 0 FAIL,
+0 SKIP** (verificado por el coordinador). Extracción actualizada a las
+funciones nuevas; espejos `colorFila`/`alfaGlowFila` reescritos; sección 12
+(P5) reescrita con `tonoPorNota` (gradNota eliminado); literales viejos
+actualizados (#1a9748→#0a7c39, #199145→#0a7537, #11c7e2→#477ff0,
+#cb14e6→#0c7f97). Tests nuevos: bisección, sin gris (S ≥ 0.70), MONACO
+teal (160–175°), jerarquía de glow (GOD 0.45 < 0.60 < dorado 0.70; GOD
+mín > cian fijo 0.40). El dorado y la mezcla 11–20 sin cambios.
+
+**Mockup:** la combinación F quedó marcada como ELEGIDA (sección 4) y se
+agregó la sección 5 "La F, cerrada" con la jerarquía de brillo y filas GOD
+donde el halo crece con la nota. NOTA: el constructor del mockup usó su
+propia escala de glow (≈0.32–0.58) y el verde del mockup (#097335), no los
+valores exactos del código (0.45–0.60, #0a7a39/#0a7537); la progresión y la
+jerarquía se ven bien, pero los números absolutos del mockup no coinciden
+con los del código preparado (mismo patrón de desviación que en D/E/F).
+
+**Nada en vivo, nada en el repo real.** Esto es código preparado para un
+futuro PR #5 (Nova fusiona + despliegue manual, como en PR #4).
+
+## Brillo por nota y medio pálido (corrección de colores) — 2026-11-16
+
+**Motivo:** Nova observó que canciones con notas muy diferentes se ven del
+mismo color (402 en cian plano, 10.05–17.48) y que los degradados cruzan por
+azul (MONACO 18.77 azul, tono 217°; STRANGER THINGS 17.69 azul, 232°).
+Aprobó la corrección ("Aplicalo en todas las canciones") y luego invirtió
+la dirección del brillo (18:41): **oscuro = nota alta, claro = nota baja**.
+
+**Regla (la misma del mockup, con la dirección invertida):**
+1. El color base se calcula igual que antes: bandas (Top 10 dorado por puesto;
+   GOD ≥19 verde #22c55e; ≥18 fuchsia #d946ef; ≥17.8 violeta #8b5cf6; resto
+   cian #22d3ee; sin calificar gris #6b7280) + rampas 0–90% con smoothstep
+   (ventanas 17.5–17.8, 17.8–18, 18.5–19) con mezcla HSL por el camino corto.
+2. Medio pálido en las rampas: s = suave(u), m = sin(π·s); al color mezclado
+   S' = S·(1−0.8·m), L' = L + (0.88−L)·0.7·m. En los bordes (m≈0) no cambia.
+3. Brillo global por nota (INVERTIDO): f = 1.17 − 0.45·clamp((nota−10)/10, 0, 1);
+   L'' = clamp(L'·f, 0.12, 0.82). En TODAS las bandas (continuo en los
+   umbrales). No se aplica al gris sin calificar (nota ≤ 0) ni al dorado Top 10;
+   la mezcla dorada 11–20 sí usa el colorBase ya transformado.
+4. Glow: el colorBase final con el alfa de su banda (verde 0.55, fuchsia 0.5,
+   violeta 0.45, cian 0.35, dorado 0.7). El viejo override de brillo 0.6 en
+   transiciones se eliminó (quedó subsumido: el brillo ahora sigue al color
+   final en TODAS las filas, con el alfa de su banda).
+
+**Qué NO cambia:** bandas, umbrales, paleta, dorado Top 10, rampas 0–90%,
+desempate, datos. main.cpp sin tocar (1278 líneas, igual que en la ronda 4).
+
+**Implementación (public/app.js, 1171 → 1220 líneas):** nueva variable de
+módulo `mPalido` (la deja `grad()`); nueva función `aplicarPalidoYBrillo(color, m, nota)` —
+pálido y brillo en UN SOLO paso HSL (si se hicieran en dos funciones
+separadas con un rgb redondeado entre medias, el color final saldría ±1 en
+un canal: 17.56, 17.69 y 18.77 lo demostraron al verificar); el bloque de
+color aplica `colorBase = aplicarPalidoYBrillo(colorBase, mPalido, nota)`
+tras las rampas y antes de la mezcla dorada; `alfaGlow` por banda reemplaza
+los brillos fijos por rama; `glow = rgbaDesde(colorBase, alfaGlow)` antes de
+la línea dorada (que sigue fijando su propio brillo 0.7). Comentario de
+cabecera del bloque reescrito con la regla nueva.
+
+**Harness (1678 → 1715 líneas): 427 → 446 PASS, 0 FAIL, 0 SKIP** (+19: 12
+muestras doradas, 4 brillo invertido, 2 medio pálido, 1 dorado intacto).
+Espejo `colorFila` actualizado idéntico; extractores (sección 0, R4-M1,
+sandbox cargarCatalogo) extraen `aplicarPalidoYBrillo` y declaran `mPalido`;
+diferencial R4-M1 (real vs espejo, 136 combinaciones nota×puesto) = 0.
+Verificación independiente: los 12 colores de muestra salen exactos del
+código real (script /tmp/verificar-colores.js, 12/12; gris y dorado
+intactos).
+
+**Muestras verificadas (hoy → nuevo):** 10.05 #22d3ee → #4cdbf1, 12.48 →
+#31d6ef, 14.00 → #1fd2ee, 16.21 → #11c5e1, 17.48 → #10b9d2, 17.56 #27bfef →
+#34acd3, 17.69 #465df3 → #848cbe, 17.98 #ce49f0 → #bd20e5, 18.35 #d946ef →
+#c714e2, 18.41 → #c613e1, 18.77 #2a73e4 → #8795a9, 19.10 #22c55e → #1a9647.
+
+**Nota sobre el test del medio pálido:** el pálido NO cambia el tono H
+(18.77 sigue en 215°, 17.69 en 232°); baja la saturación (0.78→0.17 y
+0.89→0.31) y sube la luz, así que el color se lee gris, no azul. El test
+fija saturación < 0.35, no tono fuera de 210–240° (ese test fallaría por
+diseño, porque el tono no se toca).
+
+**Pendiente (decisión de Nova 2026-11-16 18:44, posterior a esta
+implementación):** el violeta (≥17.8) y el cian general (<17.8) CAMBIAN de
+color; dorado, verde (GOD) y fuchsia se mantienen. Los colores nuevos aún
+no están elegidos (propuestas: azul profundo + violeta, turquesa + índigo,
+celeste + lila). Cuando Nova elija, hay que cambiar los dos colores de banda
+en app.js, recalcular las 12 muestras y actualizar los literales del
+harness. El mockup (mockup-colores-brillo-por-nota) se construyó con la
+regla anterior (brillo no invertido, paleta vieja) y hay que reconstruirlo
+con la regla invertida y los colores nuevos.
+
 ## Mega-auditorías (ronda 4) — 2026-11-16
 
 **Alcance:** TODO el paquete preparado, de arriba a abajo, más profunda que
