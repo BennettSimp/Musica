@@ -10,7 +10,7 @@
 // luminanciaRelativa, yObjetivo, tonoPorNota, colorPorNota, alfaGlowGod)
 // se EXTRAEN del app.js real por nombre y se evalúan (P1): si la
 // extracción falla, el harness muere con mensaje claro, nunca sigue con
-// copias viejas. Paleta G (2026-11-16): las funciones son auto-contenidas
+// copias viejas. Paleta G INVERTIDA (2026-11-17): las funciones son auto-contenidas
 // (usan literales, sin variables de módulo ni medio pálido).
 // Las listas GENEROS_VALIDOS/ETIQUETAS_VALIDAS se extraen de main.cpp
 // (P7). Las reglas de backend (calificar, POST/PUT /info, artistas) se
@@ -34,11 +34,26 @@
 // 25 ronda 4 oleada 1 (splash: los 8 tests propuestos en la ronda 3;
 // colorFila REAL extraído de app.js (M1); anclas numéricas de backend
 // extraídas de main.cpp (M3); casos borde: catálogo 678, UTF-8, título
-// 200 (B1 bytes vs caracteres), .xx5 en ambos sentidos, catálogo vacío
+// 200 (B1 bytes vs caracteres, CORREGIDO ronda 5), .xx5 en ambos sentidos, catálogo vacío
 // e histograma con bins vacíos; espejos corregidos: paginaDe sin max y
 // statsDe con mediana 0).
 const fs = require('fs');
-const BASE = process.env.HOME + '/workspace/musica-review-preparado/';
+const path = require('path');
+// R5 (2026-11-17, ChatGPT): BASE portable — se resuelve desde __dirname,
+// no desde process.env.HOME + una ruta fija de la máquina del autor; el
+// harness corre en cualquier clon (npm test) y en el paquete preparado.
+// Los SQL de migración viven en migraciones/ en el repo y en la raíz en el
+// paquete preparado (que no tiene migraciones/): leerSql() resuelve
+// migraciones/ primero y la raíz como fallback. schema.sql vive en raíz
+// en ambos layouts.
+const BASE = __dirname + path.sep;
+// resolverSql(raiz, nombre): migraciones/<nombre> si existe, si no <nombre>
+// en la raíz. Función pura para poder probarla con directorios temporales.
+const resolverSql = (raiz, nombre) => {
+  const enMig = path.join(raiz, 'migraciones', nombre);
+  return fs.existsSync(enMig) ? fs.readFileSync(enMig, 'utf8') : fs.readFileSync(path.join(raiz, nombre), 'utf8');
+};
+const leerSql = nombre => resolverSql(BASE, nombre);
 let fallos = 0, pasadas = 0, saltadas = 0;
 const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ' — ' + msg); if (cond) pasadas++; else fallos++; };
 const skip = msg => { saltadas++; console.log('SKIP — ' + msg); };
@@ -78,31 +93,43 @@ const extraerFuncion = (src, nombre, archivo) => {
   throw new Error(`llaves sin cerrar en '${nombre}' (${archivo})`);
 };
 const appJsSrc = fs.readFileSync(BASE + 'public/app.js', 'utf8');
+// Ronda 5, extras bloque 6 (módulo 1): las 10 funciones de color viven
+// en public/js/colores.js (antes en app.js); el harness las extrae de
+// ahí, sin cambiar una sola línea de lógica.
+const coloresJsSrc = fs.readFileSync(BASE + 'public/js/colores.js', 'utf8');
+// Ronda 5, extras bloque 6 (módulo 2): la capa de red + avisos vive en
+// public/js/api.js (antes en app.js); el harness extrae de ahí
+// mostrarErrorHttp y escapeHtml.
+const apiJsSrc = fs.readFileSync(BASE + 'public/js/api.js', 'utf8');
 const mainCppSrc = fs.readFileSync(BASE + 'main.cpp', 'utf8');
 let colores;
 try {
-  const fns = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
+  const fns = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(coloresJsSrc, n, 'public/js/colores.js'));
   // Paleta G (2026-11-16): las funciones de color son auto-contenidas
   // (usan literales, sin variables de módulo); no hay sandbox de nota.
   const sandbox = fns.join('\n')
     + '\nreturn { hexAHsl, hslARgb, mezcla, rgbaDesde, suave, luminanciaRelativa, yObjetivo, tonoPorNota, colorPorNota, alfaGlowGod };';
   colores = new Function(sandbox)();
 } catch (e) {
-  console.error('FALLO DE EXTRACCIÓN (P1): no se pudieron extraer las funciones de color de public/app.js: ' + e.message);
-  console.error('El harness NO sigue con copias viejas: corrige app.js o el extractor y vuelve a correr.');
+  console.error('FALLO DE EXTRACCIÓN (P1): no se pudieron extraer las funciones de color de public/js/colores.js: ' + e.message);
+  console.error('El harness NO sigue con copias viejas: corrige colores.js o el extractor y vuelve a correr.');
   process.exit(1);
 }
 const { hexAHsl, hslARgb, mezcla, rgbaDesde, suave, luminanciaRelativa, yObjetivo, tonoPorNota, colorPorNota, alfaGlowGod } = colores;
 // colorFila: espejo exacto de la lógica de color de app.js (cargarCatalogo,
 // bloque // INICIO-COLOR-G), con las funciones extraídas. Sin calificar
 // (nota <= 0) la fila es gris y el dorado exige nota > 0 (oleada 1).
-// Paleta G (2026-11-16): colorPorNota (bisección, 60 iteraciones) + mezcla dorada por
-// puesto; sin grad ni pálido.
+// Paleta G INVERTIDA (2026-11-17): colorPorNota (bisección, 60 iteraciones,
+// Y 0.21→0.48, pendiente 0.27) + mezcla HSL 11-30 hacia el dorado
+// (restaurada 2026-11-17 por decisión de Nova tras rechazar el híbrido
+// suave, y ALARGADA a 11-30 el mismo día por decisión suya; el camino
+// corto turquesa→dorado pasa por verde/lima: riesgo conocido y
+// aceptado). Sin grad ni pálido.
 const colorFila = (nota, rank) => {
   let colorBase;
   if (nota <= 0) colorBase = '#6b7280';
   else colorBase = colorPorNota(nota);
-  if (nota > 0 && rank > 10 && rank <= 20) colorBase = mezcla(0.9 * suave((20 - rank) / 9), colorBase, '#facc15');
+  if (nota > 0 && rank > 10 && rank <= 30) colorBase = mezcla(0.9 * suave((30 - rank) / 19), colorBase, '#facc15');
   if (nota > 0 && rank <= 10) colorBase = '#facc15';
   return colorBase;
 };
@@ -361,23 +388,25 @@ ok(enOrden(dAsc, ['COALESCE(ritmo,0)*0.35 + COALESCE(letras,0)*0.25 + COALESCE(c
   'DESEMPATE_ASC main.cpp: espejo exacto (mismos criterios ASC, id DESC)');
 ok(appJsSrc.includes('colorBase = colorPorNota(nota);') && appJsSrc.includes('alfaGlow = alfaGlowGod(nota);') && appJsSrc.includes('else if (nota >= 18) alfaGlow = 0.40;') && appJsSrc.includes('else if (nota >= 17.8) alfaGlow = 0.35;'),
   'color fila app.js: paleta G (colorPorNota; alfaGlowGod para GOD, 0.40 turquesa, 0.35 azul)');
-ok(appJsSrc.includes('function tonoPorNota(nota)') && appJsSrc.includes('(nota - 17.5) / 0.3') && appJsSrc.includes('(nota - 17.8) / 0.2') && appJsSrc.includes('(nota - 18.5) / 0.5'),
-  'color fila app.js: rampas de tono (17.5–17.8 violeta→azul, 17.8–18 azul→turquesa, 18.5–19 turquesa→verde)');
+ok(coloresJsSrc.includes('function tonoPorNota(nota)') && coloresJsSrc.includes('(nota - 17.5) / 0.3') && coloresJsSrc.includes('(nota - 17.8) / 0.7') && coloresJsSrc.includes('(nota - 18.5) / 0.5'),
+  'color fila colores.js: rampas de tono ALARGADAS en tonoPorNota (Nova 2026-11-17; 17.5–17.8 violeta→azul, 17.8–18.5 azul→turquesa, 18.5–19 turquesa→verde)');
 ok(!appJsSrc.includes('aplicarPalidoYBrillo') && !appJsSrc.includes('mPalido') && !appJsSrc.includes('1.17 - 0.45') && !appJsSrc.includes("grad('#22d3ee'"),
   'color fila app.js: sin restos del pálido/factor f (sin aplicarPalidoYBrillo, mPalido, 1.17-0.45 ni grad cian)');
-ok(appJsSrc.includes("if (nota > 0 && rank > 10 && rank <= 20) { colorBase = mezcla(0.9 * suave((20 - rank) / 9), colorBase, '#facc15')") && appJsSrc.includes("if (nota > 0 && rank <= 10) { colorBase = '#facc15'"),
-  'color fila app.js: dorado solo Top 10 global con nota > 0; puestos 11–20 mezclan 0–90% hacia dorado');
+ok(appJsSrc.includes("if (nota > 0 && rank > 10 && rank <= 30) colorBase = mezcla(0.9 * suave((30 - rank) / 19), colorBase, '#facc15');") && appJsSrc.includes("if (nota > 0 && rank <= 10) { colorBase = '#facc15'; glow = 'rgba(250,204,21,0.7)'; enTransicion = false; }") && !appJsSrc.includes('franjaDorada') && !appJsSrc.includes('tinteDorado') && !appJsSrc.includes('franjaHtml'),
+  'color fila app.js: dorado solo Top 10 global con nota > 0 (tinte 0.20, enTransicion=false); puestos 11–30 con mezcla HSL hacia dorado ALARGADA (0.9*suave((30-rank)/19)), sin franja ni tinte');
 ok(appJsSrc.includes("if (rango === 'sin_calificar') rangoFiltro = [0, 0];") && appJsSrc.includes("else if (rango === 'menos-10') rangoFiltro = [0.01, 9.99];") && appJsSrc.includes('rangoFiltro = [a, b >= 20 ? 20 : b - 0.01];'),
   'filtrarRango app.js: rangos reales ([0,0], [0.01,9.99], [a,b-0.01] con 20 entero) — mismos que el espejo `filtro`');
 ok(['10-12', '12-14', '14-16', '16-17.8', '17.8-18', '18-19', '19-20', 'sin_calificar', 'menos-10'].every(r => appJsSrc.includes("'" + r + "':")),
   'colorBarra del histograma (app.js) cubre los 9 rangos');
 // colorBarra usa colorPorNota en el punto medio de cada bin (paleta G
-// exacta por bisección, no colores planos aproximados): ancla el texto
-// real de app.js y comprueba los hex contra el colorPorNota extraído.
-// La barra 19-20 es el verde GOD (#0c934f), NO el brillante
-// #16a34a de antes; la 17.8-18 es azul (#1292db, punto medio de la
-// rampa azul→turquesa en 17.9, tono ~202°): el azul puro 220° solo existe en
-// 17.80 exacto, así que el promedio honesto del bin es azul ~202°.
+// INVERTIDA exacta por bisección, no colores planos aproximados): ancla
+// el texto real de app.js y comprueba los hex contra el colorPorNota
+// extraído. La barra 19-20 es el verde GOD (#11d372), NO el brillante
+// #16a34a de antes; la 17.8-18 es azul claro (#58b9f2, punto medio de
+// la rampa azul→turquesa en 17.9, tono ~202°): el azul puro 220° solo
+// existe en 17.80 exacto, así que el promedio honesto del bin es
+// azul ~218° (rampa alargada 17.8–18.5), ahora más claro por el brillo
+// creciente: 17.9 pasó de #58b9f2 a #89b0f5.
 const colorBarraTxt = appJsSrc.slice(appJsSrc.indexOf('const colorBarra ='), appJsSrc.indexOf(';', appJsSrc.indexOf('const colorBarra =')));
 ok(colorBarraTxt.includes("'10-12': colorPorNota(11)") && colorBarraTxt.includes("'12-14': colorPorNota(13)")
   && colorBarraTxt.includes("'14-16': colorPorNota(15)") && colorBarraTxt.includes("'16-17.8': colorPorNota(16.9)")
@@ -385,26 +414,31 @@ ok(colorBarraTxt.includes("'10-12': colorPorNota(11)") && colorBarraTxt.includes
   && colorBarraTxt.includes("'19-20': colorPorNota(19.5)") && colorBarraTxt.includes("'menos-10': colorPorNota(9)")
   && colorBarraTxt.includes("'sin_calificar': '#6b7280'") && !colorBarraTxt.includes('#16a34a') && !colorBarraTxt.includes('linear-gradient'),
   'colorBarra del histograma (app.js) usa colorPorNota en los puntos medios, sin #16a34a ni linear-gradient');
-ok(colorPorNota(9) === '#d0a8f8' && colorPorNota(11) === '#cca2f7' && colorPorNota(13) === '#c593f6' && colorPorNota(15) === '#bd84f5'
-  && colorPorNota(16.9) === '#b474f4' && colorPorNota(17.9) === '#1292db' && colorPorNota(18.5) === '#0c9797' && colorPorNota(19.5) === '#0c934f',
-  `colorBarra: hex exactos por punto medio (menos-10 ${colorPorNota(9)}, 10-12 ${colorPorNota(11)}, 12-14 ${colorPorNota(13)}, 14-16 ${colorPorNota(15)}, 16-17.8 ${colorPorNota(16.9)}, 17.8-18 ${colorPorNota(17.9)}, 18-19 ${colorPorNota(18.5)}, 19-20 ${colorPorNota(19.5)}); 19-20 GOD #0c934f, no #16a34a`);
+ok(colorPorNota(9) === '#a456f1' && colorPorNota(11) === '#aa61f2' && colorPorNota(13) === '#b577f4' && colorPorNota(15) === '#be87f5'
+  && colorPorNota(16.9) === '#c695f6' && colorPorNota(17.9) === '#89b0f5' && colorPorNota(18.5) === '#10c7c7' && colorPorNota(19.5) === '#11d372',
+  `colorBarra: hex exactos por punto medio (menos-10 ${colorPorNota(9)}, 10-12 ${colorPorNota(11)}, 12-14 ${colorPorNota(13)}, 14-16 ${colorPorNota(15)}, 16-17.8 ${colorPorNota(16.9)}, 17.8-18 ${colorPorNota(17.9)}, 18-19 ${colorPorNota(18.5)}, 19-20 ${colorPorNota(19.5)}); 19-20 GOD #11d372, no #16a34a`);
 const swJsR2 = fs.readFileSync(BASE + 'public/sw.js', 'utf8');
 ok(swJsR2.includes("'/index.html'") && swJsR2.includes("'/app.js'") && swJsR2.includes("'/'"),
   'sw.js precachea /, /index.html y /app.js (además del manifiesto e iconos)');
 
 // ---------- 6. Auditoría final ----------
-// tonoPorNota(): rampas de tono de la paleta G (2026-11-16) con
-// smoothstep al 90%: violeta 270° hasta 17.5, rampa a azul 220° en
-// 17.5–17.8, rampa a turquesa 180° en 17.8–18, turquesa fijo hasta 18.5,
-// rampa a verde 150° en 18.5–19, verde fijo desde 19.
+// tonoPorNota(): rampas de tono ALARGADAS de la paleta G (Nova
+// 2026-11-17) con smoothstep al 90%: violeta 270° hasta 17.5, rampa
+// a azul 220° en 17.5–17.8, rampa a turquesa 180° en 17.8–18.5,
+// rampa a verde 150° en 18.5–19, verde fijo desde 19. Continuas de
+// 17.5 a 19.0, sin huecos planos entre ellas (antes: 17.0–17.8,
+// 17.8–18 y turquesa fijo 18–18.5).
 // (Antes: gradFactor, modelo de la rampa 0-90% de grad(); eliminado
 // con la paleta anterior; la G es espectral Dorado→Verde→Turquesa→Azul→Violeta.)
 const cerca = (a, b) => Math.abs(a - b) < 1e-9;
-ok(tonoPorNota(10.05) === 270 && tonoPorNota(17.5) === 270, 'tonoPorNota: violeta 270° en nota baja (10.05) y en 17.50 (inicio de la primera rampa)');
-ok(cerca(tonoPorNota(17.65), 247.5), 'tonoPorNota: 17.65 a mitad de la rampa violeta→azul = 247.5° (270 − 50·0.9·suave(0.5))');
+ok(tonoPorNota(10.05) === 270 && tonoPorNota(17.0) === 270 && tonoPorNota(17.49) === 270 && tonoPorNota(17.5) === 270, 'tonoPorNota: violeta 270° en nota baja (10.05), en 17.00 y en 17.49 (antes de la rampa); 17.50 es el inicio de la rampa a 17.8 (Nova 2026-11-17 07:39)');
+ok(tonoPorNota(17.4) === 270, 'tonoPorNota: 17.40 = violeta puro 270° (antes de la rampa, que empieza en 17.5)');
+ok(cerca(tonoPorNota(17.65), 270 - 50 * 0.9 * suave((17.65 - 17.5) / 0.3)), 'tonoPorNota: 17.65 a mitad de la rampa violeta→azul = 247.5° (270 − 50·0.9·suave(0.5))');
+ok(tonoPorNota(17.5) === 270, 'tonoPorNota: 17.50 = violeta puro 270° (inicio de la rampa a 17.8, decisión Nova 2026-11-17 07:39)');
 ok(tonoPorNota(17.8) === 220, 'tonoPorNota: 17.80 = azul 220° (fin de la primera rampa)');
-ok(cerca(tonoPorNota(17.9), 202), 'tonoPorNota: 17.9 a mitad de la rampa azul→turquesa = 202° (220 − 40·0.9·suave(0.5))');
-ok(tonoPorNota(18) === 180, 'tonoPorNota: 18.00 = turquesa 180° (fin de la segunda rampa)');
+ok(cerca(tonoPorNota(17.9), 220 - 40 * 0.9 * suave((17.9 - 17.8) / 0.7)), 'tonoPorNota: 17.9 en la rampa azul→turquesa ALARGADA ≈ 218.01° (antes era 202°, mitad de la rampa corta)');
+ok(cerca(tonoPorNota(18), 220 - 40 * 0.9 * suave((18 - 17.8) / 0.7)), 'tonoPorNota: 18.00 en la rampa azul→turquesa ALARGADA ≈ 212.86° (antes era turquesa puro 180°)');
+ok(tonoPorNota(18.5) === 180, 'tonoPorNota: 18.50 = turquesa 180° (fin de la segunda rampa alargada)');
 ok(cerca(tonoPorNota(18.75), 166.5), 'tonoPorNota: 18.75 a mitad de la rampa turquesa→verde = 166.5° (180 − 30·0.9·suave(0.5))');
 ok(tonoPorNota(19) === 150 && tonoPorNota(19.6) === 150, 'tonoPorNota: verde 150° desde 19.00 (19.00 y 19.60)');
 // Filtro guardado (auditoría G, ronda 1): los géneros heredados con canciones
@@ -433,63 +467,87 @@ ok(JSON.stringify(visiblesChips('Por clasificar', { Pop: 130, Rap: 182, 'Por cla
 const sinNaN = s => typeof s === 'string' && !/NaN/.test(s) && s.match(/\d+/g).every(n => +n >= 0 && +n <= 255);
 ok(colorFila(19.6, 1) === '#facc15', 'color fila: 19.60 puesto 1 = dorado pleno');
 ok(colorFila(18.9, 3) === '#facc15', 'color fila: 18.9 puesto 3 = dorado pleno (dorado SOLO por puesto, sin exigir ≥19)');
-ok(aHex(colorFila(18.9, 25)) === '#0c975f', 'color fila: 18.9 puesto 25 = turquesa→verde (paleta G)');
+ok(aHex(colorFila(18.9, 25)) === '#10d74f', 'color fila: 18.9 puesto 25 = mezcla alargada ~15% hacia dorado (#10d74f, antes color de nota puro #11ce82)');
 // 17.80 exacto es azul puro (tono 220°, bisección); en 17.79 el tono ya
 // está al ~90% hacia azul en la rampa violeta→azul, distinto de 17.80.
-ok(aHex(colorFila(17.8, 100)) === '#5488f1', 'color fila: 17.80 puesto 100 = azul puro (tono 220°, bisección)');
-ok(aHex(colorFila(17.79, 100)) === '#6386f2', 'color fila: 17.79 puesto 100 = violeta→azul al ~90%, distinto de 17.80');
-ok(aHex(colorFila(10.05, 677)) === '#d0a8f8', 'color fila: 10.05 puesto 677 = violeta (nota baja clara dentro de la escala, brillo invertido)');
-ok(aHex(colorFila(19.38, 11)) === '#f8f10b', 'color fila: 19.38 puesto 11 = verde → dorado al 90% (tope 90%)');
-ok(aHex(colorFila(19.38, 20)) === '#0c9350', 'color fila: 19.38 puesto 20 = verde (rampa por puesto en 0%)');
+ok(aHex(colorFila(17.8, 100)) === '#8caff6', 'color fila: 17.80 puesto 100 = azul puro (tono 220°, bisección)');
+ok(aHex(colorFila(17.79, 100)) === '#94adf6', 'color fila: 17.79 puesto 100 = violeta→azul al ~90%, distinto de 17.80');
+ok(aHex(colorFila(10.05, 677)) === '#a456f1', 'color fila: 10.05 puesto 677 = violeta (nota baja oscura dentro de la escala, brillo creciente)');
+ok(aHex(colorFila(19.38, 11)) === '#f9f112', 'color fila: 19.38 puesto 11 = mezcla verde→dorado al 90% (#f9f112, casi dorado)');
+ok(aHex(colorFila(19.38, 20)) === '#55ec0c', 'color fila: 19.38 puesto 20 = mezcla alargada ~49% (#55ec0c, antes color de nota puro #11d171)');
 if (tieneDatos) {
   // Ventanas de tono (paleta G, 2026-11-16): cuántas canciones reales caen en cada ventana.
   const enV = (a, b) => C.filter(c => c.calificacion_final >= a && c.calificacion_final < b).length;
-  const vA = enV(17.5, 17.8), vC = enV(18.5, 19), vB = enV(17.8, 18);
-  console.log(`  ventanas: violeta→azul [17.5,17.8): ${vA} canc., azul→turquesa [17.8,18): ${vB} canc., turquesa→verde [18.5,19): ${vC} canc.`);
+  const vA = enV(17.5, 17.8), vC = enV(18.5, 19), vB = enV(17.8, 18.5);
+  console.log(`  ventanas ALARGADAS: violeta→azul [17.5,17.8): ${vA} canc., azul→turquesa [17.8,18.5): ${vB} canc., turquesa→verde [18.5,19): ${vC} canc.`);
   ok(vA > 0 && vC > 0 && vB > 0, `[datos reales] ventanas con canciones reales: A=${vA}, B=${vB}, C=${vC} (todas > 0)`);
 } else skip('ventanas con canciones reales (sin public/datos-reales.json)');
-ok(aHex(colorFila(17.5, 100)) === '#b16ef3' && aHex(colorFila(18.5, 100)) === '#0c9797', 'color fila: 17.50 y 18.50 = inicio de ventana: solo bisección, sin mezcla de rampa');
-// Puesto 15 con 18.9: su color propio es colorPorNota(18.9) y desde ahí
-// mezcla hacia el dorado. Sin el soporte rgb en hexAHsl esto daba NaN.
+ok(aHex(colorFila(17.0, 100)) === '#c696f7' && aHex(colorFila(18.5, 100)) === '#10c7c7', 'color fila: 17.00 y 18.50 = inicio de ventana: solo bisección, sin mezcla de rampa');
+ok(aHex(colorFila(17.5, 100)) === '#c89af7', 'color fila: 17.50 = violeta puro #c89af7 (inicio de la rampa; antes #a5a7f8 en la rampa alargada desde 17.0)');
+// MEZCLA 11-30 ALARGADA (Nova 2026-11-17 07:17, alargar ambas:
+// restaurada 06:59 tras rechazar el híbrido suave, alargada de 11-20
+// a 11-30): colorFila es la mezcla HSL del color de nota hacia el
+// dorado, 0.9*suave((30-rank)/19). Puesto 15 con 18.9: mezcla al ~80%
+// (0.9*suave(15/19) ≈ 0.80) → #d1f70e (antes 52% → verde lima #59ec0c):
+// el camino corto turquesa→dorado pasa por verde, así que una canción
+// turquesa del 11-30 se ve verdosa como si fuera GOD; riesgo conocido
+// y aceptado por Nova. Sin el soporte rgb en hexAHsl la mezcla daba NaN.
+// NOTA (principio de Nova: que premie a lo mejor): el camino HSL pasa
+// por lima (Y ~0.86 > dorado 0.6356); en datos reales los puestos 11-19
+// quedan más brillantes que el dorado en Y pura, como ya pasaba en
+// 11-14 con la mezcla corta aprobada. El Top 10 sigue siendo lo más
+// fuerte por su halo animado y su glow 0.70, y el fundido es monótono
+// por puesto (el dorado desciende con el puesto, sin inversiones).
 const c15 = colorFila(18.9, 15);
-const c15esp = mezcla(0.9 * suave((20 - 15) / 9), colorPorNota(18.9), '#facc15');
-ok(sinNaN(c15) && c15 === c15esp, `color fila: 18.9 puesto 15 = mezcla desde su propio color hacia dorado (${c15}, sin NaN; literal #4fd20a)`);
+ok(sinNaN(c15) && aHex(c15) === '#d1f70e' && c15 === mezcla(0.9 * suave((30 - 15) / 19), colorPorNota(18.9), '#facc15'), `color fila: 18.9 puesto 15 = mezcla al ~80% (${c15}), amarillo lima por el paso por verde`);
+ok(aHex(colorFila(18.5, 11)) === '#f4f911', 'color fila: 18.5 puesto 11 = mezcla turquesa→dorado al 90% (#f4f911, amarillo-verdoso, no turquesa)');
+ok(aHex(colorFila(18.9, 11)) === '#f9f412' && aHex(colorFila(10.05, 11)) === '#f99a1c', 'color fila: mezcla 11-30 en 18.9 (#f9f412) y en 10.05 (#f99a1c, naranja por el paso violeta→dorado)');
+ok(colorFila(19.6, 10) === '#facc15' && aHex(colorFila(19.6, 11)) === '#f9f112', 'color fila: Top 10 dorado pleno sin mezcla; puesto 11 ya mezcla (19.6 → #f9f112)');
+ok(aHex(colorFila(19.38, 20)) === '#55ec0c' && aHex(colorFila(19.38, 30)) === '#11d171' && aHex(colorFila(19.38, 31)) === '#11d171', 'color fila: mezcla 11-30: puesto 20 con 19.38 = #55ec0c (mezcla ~49%), puesto 30 y 31 = color de nota puro #11d171');
+ok(appJsSrc.includes("if (nota > 0 && rank > 10 && rank <= 30) colorBase = mezcla(0.9 * suave((30 - rank) / 19), colorBase, '#facc15');") && !appJsSrc.includes('franjaDorada') && !appJsSrc.includes('tinteDorado') && !appJsSrc.includes('franjaHtml'),
+  'mezcla 11-30 en app.js: línea de mezcla HSL alargada; sin franja dorada ni tinte dorado');
+// CONTINUIDAD de las rampas alargadas: sin huecos planos de 17.0 a 19.0.
+ok(tonoPorNota(17.4) === 270 && tonoPorNota(17.6) < 270 && tonoPorNota(17.6) > tonoPorNota(17.8) && tonoPorNota(17.8) === 220 && tonoPorNota(18.2) < 220 && tonoPorNota(18.2) > 180 && tonoPorNota(18.5) === 180 && tonoPorNota(18.7) < 180 && tonoPorNota(18.7) > 150, 'rampas alargadas: tono estrictamente decreciente 17.5→19.0 sin tramos planos (17.4 violeta puro, 17.6 en rampa, 18.2 en rampa, 18.7 en rampa)');
 ok(sinNaN(mezcla(0.5, 'rgb(217,70,239)', '#facc15')), 'mezcla desde un color rgb(...): sin NaN');
 // 2026-11-16 (paleta G + bisección, 60 iteraciones): los 12 colores de muestra fijados
 // como literales hex (referencia del mockup; la implementación debe
 // reproducirlos exactos).
 const MUESTRAS_COLOR = [
-  [10.05, '#d0a8f8'], [12.48, '#c798f7'], [14, '#c18cf6'], [16.21, '#b77bf4'],
-  [17.48, '#b16ff3'], [17.56, '#a872f4'], [17.69, '#7d80f4'], [17.98, '#0d98a5'],
-  [18.35, '#0c9898'], [18.41, '#0c9797'], [18.77, '#0c9774'], [19.1, '#0c9551'],
+  [10.05, '#a456f1'], [12.48, '#b371f4'], [14, '#ba7ff5'], [16.21, '#c390f6'],
+  [17.48, '#c89af7'], [17.56, '#c39df7'], [17.69, '#a6a8f8'], [17.98, '#80b2f5'],
+  [18.35, '#12c3df'], [18.41, '#11c4d7'], [18.77, '#10cc9c'], [19.1, '#11d071'],
 ];
 for (const [n, esp] of MUESTRAS_COLOR) ok(aHex(colorFila(n, 100)) === esp, `color fila [muestra 2026-11-16]: nota ${n} = ${esp} (paleta G + bisección)`);
-// Brillo INVERTIDO por luminancia Y (WCAG, no L): la luminancia relativa
-// baja al subir la nota, en violeta, azul, turquesa y verde (decisión de Nova
-// 2026-11-16: oscuro = nota alta, claro = nota baja).
+// Brillo CRECIENTE por luminancia Y (WCAG, no L): la luminancia relativa
+// sube al subir la nota, en violeta, azul, turquesa y verde (decisión de
+// Nova 2026-11-17, tras el análisis de Claude: claro = nota alta,
+// oscuro = nota baja; reemplaza el brillo invertido de la G original).
 const lum = c => { const h = aHex(c); return luminanciaRelativa(parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)); };
-ok(lum(colorFila(10.05, 677)) > lum(colorFila(17.48, 677)), 'color fila [brillo invertido]: Y de 10.05 mayor que Y de 17.48 (violeta, nota baja más luminosa)');
-ok(lum(colorFila(18, 100)) > lum(colorFila(18.49, 100)), 'color fila [brillo invertido]: Y de 18.00 mayor que Y de 18.49 (turquesa)');
-ok(lum(colorFila(17.8, 100)) > lum(colorFila(17.99, 100)), 'color fila [brillo invertido]: Y de 17.80 mayor que Y de 17.99 (azul)');
-ok(lum(colorFila(19, 100)) > lum(colorFila(19.6, 100)), 'color fila [brillo invertido]: Y de 19.00 mayor que Y de 19.60 (verde GOD)');
-ok(MUESTRAS_COLOR.every(([n], i) => i === 0 || lum(colorFila(MUESTRAS_COLOR[i - 1][0], 100)) > lum(colorFila(n, 100))), 'color fila [brillo invertido]: Y estrictamente decreciente al subir la nota en las 12 muestras');
+ok(lum(colorFila(10.05, 677)) < lum(colorFila(17.48, 677)), 'color fila [brillo creciente]: Y de 10.05 menor que Y de 17.48 (violeta, nota baja más oscura)');
+ok(lum(colorFila(18, 100)) < lum(colorFila(18.49, 100)), 'color fila [brillo creciente]: Y de 18.00 menor que Y de 18.49 (turquesa)');
+ok(lum(colorFila(17.8, 100)) < lum(colorFila(17.99, 100)), 'color fila [brillo creciente]: Y de 17.80 menor que Y de 17.99 (azul)');
+ok(lum(colorFila(19, 100)) < lum(colorFila(19.6, 100)), 'color fila [brillo creciente]: Y de 19.00 menor que Y de 19.60 (verde GOD)');
+ok(MUESTRAS_COLOR.every(([n], i) => i === 0 || lum(colorFila(MUESTRAS_COLOR[i - 1][0], 100)) < lum(colorFila(n, 100))), 'color fila [brillo creciente]: Y estrictamente creciente al subir la nota en las 12 muestras');
 // Sin gris (paleta G): la saturación nunca baja de 0.70 en las muestras
 // (la bisección fija S 0.85; las transiciones nunca pasan por el gris).
 ok(MUESTRAS_COLOR.every(([n]) => hexAHsl(colorFila(n, 100))[1] >= 0.70), 'color fila [sin gris]: S ≥ 0.70 en las 12 muestras (paleta G, S 0.85 por bisección)');
 // MONACO verde-turquesa: 18.77 tiene tono entre 150° y 175° (verde-turquesa,
 // no azul) y no es el azul viejo #2a73e4 ni gris.
 ok(hexAHsl(colorFila(18.77, 100))[0] >= 150 && hexAHsl(colorFila(18.77, 100))[0] <= 175 && aHex(colorFila(18.77, 100)) !== '#2a73e4', 'color fila [MONACO verde-turquesa]: 18.77 con tono 150–175° (verde-turquesa, no azul #2a73e4 ni gris)');
-// Unforgettable turquesa/cian: 17.98 tiene tono entre 170° y 190°.
-ok(hexAHsl(colorFila(17.98, 100))[0] >= 170 && hexAHsl(colorFila(17.98, 100))[0] <= 190, 'color fila [Unforgettable turquesa]: 17.98 con tono 170–190° (turquesa/cian)');
+// Unforgettable AZUL (rampa alargada 2026-11-17): 17.98 deja de ser
+// turquesa (antes tono ~185°) y pasa a azul (tono ~214°, #80b2f5),
+// porque la rampa azul→turquesa ahora llega hasta 18.5. El umbral
+// ≥17.8 sigue siendo azul de categoría (glow 0.35), solo cambia el tono.
+ok(hexAHsl(colorFila(17.98, 100))[0] >= 200 && hexAHsl(colorFila(17.98, 100))[0] <= 220, 'color fila [Unforgettable azul]: 17.98 con tono 200–220° (azul, rampa alargada)');
 // GOD 19.00 menos luminoso que MONACO 18.77 (la escala Y sigue bajando).
-ok(lum(colorFila(19, 100)) < lum(colorFila(18.77, 100)), 'color fila [GOD < MONACO]: Y de 19.00 menor que Y de 18.77');
+ok(lum(colorFila(19, 100)) > lum(colorFila(18.77, 100)), 'color fila [GOD > MONACO]: Y de 19.00 mayor que Y de 18.77 (brillo creciente)');
 // GOD 19.00 distinto de Yo soy libre 19.10 (sin colisión en el borde).
-ok(aHex(colorFila(19, 100)) !== aHex(colorFila(19.1, 100)), 'color fila [GOD ≠ 19.10]: 19.00 #0c9751 distinto de 19.10 #0c9551');
-// Carmen no más clara que Provenza: 17.56 (ya en rampa violeta→azul) es
-// menos luminosa que 17.48 (violeta puro).
-ok(lum(colorFila(17.56, 100)) < lum(colorFila(17.48, 100)), 'color fila [Carmen/Provenza]: Y de 17.56 menor que Y de 17.48 (Carmen no más clara que Provenza)');
+ok(aHex(colorFila(19, 100)) !== aHex(colorFila(19.1, 100)), 'color fila [GOD ≠ 19.10]: 19.00 #11cf70 distinto de 19.10 #11d071');
+// Carmen/Provenza (brillo creciente): 17.56 (ya en rampa violeta→azul)
+// es MÁS luminosa que 17.48 (violeta puro), porque la Y sube con la nota.
+ok(lum(colorFila(17.56, 100)) > lum(colorFila(17.48, 100)), 'color fila [Carmen/Provenza]: Y de 17.56 mayor que Y de 17.48 (Carmen más clara que Provenza, brillo creciente)');
 // Andrea ≠ De carolina: 18.35 y 18.41 no colisionan en el mismo hex.
-ok(aHex(colorFila(18.35, 100)) !== aHex(colorFila(18.41, 100)), 'color fila [Andrea ≠ De carolina]: 18.35 #0c9898 distinto de 18.41 #0c9797');
+ok(aHex(colorFila(18.35, 100)) !== aHex(colorFila(18.41, 100)), 'color fila [Andrea ≠ De carolina]: 18.35 #10c5c5 distinto de 18.41 #10c7c7');
 // Glow GOD (jerarquía, espejo alfaGlowFila): dorado 0.70 > GOD variable
 // 0.45 (19.00) → 0.60 (19.60) > turquesa fijo 0.40 > azul fijo 0.35
 // > violeta fijo 0.30. El glow variable es SOLO para GOD.
@@ -505,9 +563,9 @@ ok(colorFila(17, 5) === '#facc15', 'color fila [dorado intacto]: 17.00 puesto 5 
 // Ronda 1: paginación y botones grandes con mínimo 44px táctiles.
 const appJs = appJsSrc;
 const idxHtml = fs.readFileSync(BASE + 'public/index.html', 'utf8');
-ok(appJs.includes('irPagina(${data.pagina_actual - 1})') && (appJs.match(/irPagina\(\$\{data\.pagina_actual/g) || []).length === 2
-  && appJs.split('irPagina(${data.pagina_actual').slice(1).every(s => s.slice(0, 400).includes('min-h-[44px]')),
-  'paginación ANT/SIG con min-h-[44px]');
+ok(appJs.includes('data-valor="${data.pagina_actual - 1}"') && appJs.includes('data-valor="${data.pagina_actual + 1}"') && (appJs.match(/data-accion="ir-pagina"/g) || []).length === 2
+  && appJs.split('data-valor="${data.pagina_actual').slice(1).every(s => s.slice(0, 400).includes('min-h-[44px]')),
+  'paginación ANT/SIG con min-h-[44px] (ronda 5, CSP: data-accion="ir-pagina")');
 ok(['btn-agregar"', 'btn-agregar-seguir"', 'btn-calificar"'].every(id => { const i = idxHtml.indexOf(id); return i > -1 && idxHtml.slice(i, i + 400).includes('min-h-[44px]'); }),
   'botones Añadir / Añadir y seguir / Guardar calificación con min-h-[44px]');
 // Ronda 1: irADuplicado recorre páginas (simulación con páginas de 2).
@@ -579,7 +637,7 @@ ok(!idxHtml.includes('<body class="bg-[#040b1a]'), 'body sin fondo opaco propio 
 // 9a. Objetivos táctiles (el estándar del proyecto es 44px; la auditoría F
 // solo lo había comprobado en paginación y botones grandes).
 ok(appJs.includes("const CHIP = 'flex-shrink-0 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap min-h-[44px] '"), 'burbujas de género con min-h-[44px]');
-ok(appJs.includes('min-h-[44px] flex flex-col justify-center') && appJs.includes("filtrarRango('${h.rango}')"), 'barras del histograma con min-h-[44px]');
+ok(appJs.includes('min-h-[44px] flex flex-col justify-center') && appJs.includes('data-accion="filtrar-rango"'), 'barras del histograma con min-h-[44px] (ronda 5, CSP: data-accion="filtrar-rango")');
 ok(appJs.includes('rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR'), 'botón REINTENTAR del error con min-h-[44px]');
 ok(appJs.includes("btnConfirm.className = claseBoton + ' min-h-[44px]';"), 'abrirModal conserva min-h-[44px] en el botón de confirmar');
 // Barrido: todos los <button> del HTML tienen min-h-[44px] o py-4
@@ -587,7 +645,7 @@ ok(appJs.includes("btnConfirm.className = claseBoton + ' min-h-[44px]';"), 'abri
 // respeta las comillas: hay onclick con `=>` que llevan `>` dentro.
 const botonesHtml = [...idxHtml.matchAll(/<button(?:[^>"']|"[^"]*"|'[^']*')*>/g)].map(m => m[0]);
 const sinMinimo = botonesHtml.filter(b => !b.includes('min-h-[44px]') && !b.includes('py-4'));
-ok(sinMinimo.length === 2 && sinMinimo.every(b => b.includes('irADuplicado()') || b.includes('usarArtistaSugerido()')),
+ok(sinMinimo.length === 2 && sinMinimo.every(b => b.includes('data-accion="ir-duplicado"') || b.includes('data-accion="usar-artista-sugerido"')),
   `botones del HTML sin min-h-[44px] ni py-4: ${sinMinimo.length} (solo los 2 enlaces de texto en línea)`);
 // 9b. irADuplicado limpia el filtro de género y el de rango antes de buscar.
 ok(appJs.includes("document.getElementById('filtro-genero').value = 'todos';") && appJs.includes('rangoFiltro = null; rangoActivo = null;'), 'irADuplicado limpia género y rango antes de buscar el duplicado');
@@ -599,7 +657,7 @@ ok(appJs.includes("cajaActiva.style.borderColor = '';") && appJs.includes("cajaA
 // ingenuo `<button[^>]*>` se corta en el `>=` de la paginación SIG, así
 // que se comprueba por líneas completas.
 ok(appJs.includes('px-3 py-3 min-h-[44px] min-w-[44px]">Editar') && appJs.includes('px-3 py-3 min-h-[44px] min-w-[44px]">Eliminar'), 'botones Editar/Eliminar de la fila con min-h y min-w de 44px');
-ok(appJs.includes('irPagina(${data.pagina_actual + 1})') && appJs.includes('p-1 min-h-[44px] px-2 disabled:cursor-not-allowed">SIG'), 'paginación SIG con min-h-[44px] (el `>=` cortaba el regex ingenuo)');
+ok(appJs.includes('data-valor="${data.pagina_actual + 1}"') && appJs.includes('p-1 min-h-[44px] px-2 disabled:cursor-not-allowed">SIG'), 'paginación SIG con min-h-[44px] (ronda 5, CSP: data-accion="ir-pagina")');
 
 
 // ---------- 10. Artistas (tabla cancion_artistas, 2026-11-16) ----------
@@ -745,7 +803,7 @@ ok(!validarArtistas([{ nombre: 'x'.repeat(201), rol: 'principal' }]).ok, 'POST c
 ok(validarArtistas([{ nombre: ' ', rol: 'invitado' }, { nombre: 'Karol G', rol: 'principal' }]).ok, 'POST: nombres vacíos se ignoran, con principal válido pasa');
 ok(validarArtistas(null).ok && validarArtistas(null).entradas === null, 'POST sin arreglo: el artista plano es un solo principal (compat)');
 // 10i. El SQL de artistas (artistas-aplicar.sql) es coherente con el código.
-const sqlArtistas = fs.readFileSync(BASE + 'artistas-aplicar.sql', 'utf8');
+const sqlArtistas = leerSql('artistas-aplicar.sql');
 const contarTuplas = rol => (sqlArtistas.match(new RegExp(`\\([0-9]+, [0-9]+, '${rol}', [0-9]+\\)`, 'g')) || []).length;
 ok(sqlArtistas.includes('CREATE TABLE IF NOT EXISTS artistas') && sqlArtistas.includes('CREATE TABLE IF NOT EXISTS cancion_artistas'),
   'SQL: crea las tablas artistas y cancion_artistas');
@@ -778,6 +836,12 @@ ok(!appJs.includes("filtro-artista") && !idxHtml.includes("filtro-artista"),
 const schemaSql = fs.readFileSync(BASE + 'schema.sql', 'utf8');
 ok(schemaSql.includes('CREATE TABLE IF NOT EXISTS artistas') && schemaSql.includes('CREATE TABLE IF NOT EXISTS cancion_artistas') && schemaSql.includes('DROP COLUMN artista'),
   'schema.sql: tablas artistas + cancion_artistas; DROP COLUMN artista solo documentado como paso final separado');
+// R5 (ChatGPT): calificacion_final con CHECK 0-20 y orden de migraciones
+// completo (correccion-datos-ronda-4.sql después de correccion-678.sql).
+ok(schemaSql.includes('calificacion_final DOUBLE PRECISION CHECK (calificacion_final BETWEEN 0 AND 20)'),
+  'R5 schema.sql: calificacion_final con CHECK BETWEEN 0 AND 20 (antes sin CHECK)');
+ok(schemaSql.indexOf('correccion-678.sql') !== -1 && schemaSql.indexOf('correccion-datos-ronda-4.sql') !== -1 && schemaSql.indexOf('correccion-datos-ronda-4.sql') > schemaSql.indexOf('correccion-678.sql'),
+  'R5 schema.sql: el orden de migraciones incluye correccion-datos-ronda-4.sql DESPUÉS de correccion-678.sql');
 // 10k. Géneros nuevos del lote 4 (aprobados 2026-11-15): frontend y backend
 // coinciden. Antes, app.js ya tenía los 5 (27 valores) pero main.cpp seguía
 // en 22, así que POST/PUT con Merengue, Dembow, Reggae, Bachata o Afrobeats
@@ -817,19 +881,20 @@ ok(redondeoExacto(total1000(casoBinario)) === 18.03 && Math.round(calc(casoBinar
 // ---------- 12. P5 — bordes de rampa [invariante] ----------
 // Bordes de rampa de TONO (tonoPorNota, paleta G): ya no hay mezcla RGB
 // entre dos colores (grad/gradNota se eliminaron con la paleta vieja).
-// Las rampas mueven el TONO con tope 90% de la distancia al tono destino:
-// 17.5–17.8 violeta 270°→azul 220°, 17.8–18 azul 220°→turquesa 180°,
-// 18.5–19 turquesa 180°→verde 150°. Los factores 89.71%/89.35%/89.89%
-// (0.9·suave(t) en cada borde) ya no aplican como mezcla RGB: ahora son
-// la posición en la rampa de tono (≈225.15°, ≈184.26° y ≈153.03°).
-ok(tonoPorNota(17.5) === 270, 'P5 [invariante] rampa 17.50 → 270° (violeta puro, inicio de la ventana 17.5–17.8)');
-ok(cerca(tonoPorNota(17.79), 270 - 50 * 0.9 * suave((17.79 - 17.5) / 0.3)), 'P5 [invariante] rampa 17.79 → ≈225.15° (violeta→azul al ~90%)');
+// Las rampas mueven el TONO con tope 90% de la distancia al tono destino
+// (ALARGADAS 2026-11-17, inicio ajustado a 17.5 por Nova 2026-11-17 07:39): 17.5–17.8 violeta 270°→azul 220°,
+// 17.8–18.5 azul 220°→turquesa 180°, 18.5–19 turquesa 180°→verde 150°.
+// Los factores 0.9·suave(t) en cada borde ya no aplican como mezcla RGB:
+// ahora son la posición en la rampa de tono (≈225.02°, ≈213.48° y
+// ≈153.03° en 17.79, 17.99 y 18.99).
+ok(tonoPorNota(17.0) === 270 && tonoPorNota(17.5) === 270, 'P5 [invariante] rampa 17.00 y 17.50 → 270° (violeta puro; la ventana violeta→azul empieza en 17.5, no en 17.0)');
+ok(cerca(tonoPorNota(17.79), 270 - 50 * 0.9 * suave((17.79 - 17.5) / 0.3)), 'P5 [invariante] rampa 17.79 → ≈225.15° (violeta→azul al ~90%, ventana 17.5–17.8)');
 ok(tonoPorNota(17.8) === 220, 'P5 [invariante] rampa 17.80 → 220° (azul puro, inicio de la ventana del 18)');
-ok(cerca(tonoPorNota(17.99), 220 - 40 * 0.9 * suave((17.99 - 17.8) / 0.2)), 'P5 [invariante] rampa 17.99 → ≈184.26° (azul→turquesa al ~90%)');
-ok(aHex(colorFila(18.00, 100)) === '#0c9a9a', 'P5 [invariante] rampa 18.00 → turquesa puro (en el umbral, sin mezcla de rampa)');
-ok(tonoPorNota(18.5) === 180, 'P5 [invariante] rampa 18.50 → 180° (turquesa puro, inicio de la ventana 18.5–19)');
+ok(cerca(tonoPorNota(17.99), 220 - 40 * 0.9 * suave((17.99 - 17.8) / 0.7)), 'P5 [invariante] rampa 17.99 → ≈213.48° (azul→turquesa, ventana alargada 17.8–18.5)');
+ok(aHex(colorFila(18.00, 100)) === '#7eb3f5', 'P5 [invariante] rampa 18.00 → azul #7eb3f5 (tono ≈212.86°, en la rampa alargada 17.8–18.5; ya no turquesa puro)');
+ok(tonoPorNota(18.5) === 180, 'P5 [invariante] rampa 18.50 → 180° (turquesa puro, fin de la ventana alargada 17.8–18.5, inicio de 18.5–19)');
 ok(cerca(tonoPorNota(18.99), 180 - 30 * 0.9 * suave((18.99 - 18.5) / 0.5)), 'P5 [invariante] rampa 18.99 → ≈153.03° (turquesa→verde al ~90%)');
-ok(aHex(colorFila(19.00, 100)) === '#0c9751', 'P5 [invariante] rampa 19.00 → verde puro (en el umbral, sin mezcla de rampa)');
+ok(aHex(colorFila(19.00, 100)) === '#11cf70', 'P5 [invariante] rampa 19.00 → verde puro (en el umbral, sin mezcla de rampa)');
 // Nota 0 con puesto 1: sin dorado en NINGÚN elemento. colorBase es gris
 // (el dorado exige nota > 0, app.js) y el tinte/brillo se derivan de
 // colorBase con rgbaDesde, así que tampoco pueden ser dorados.
@@ -837,9 +902,9 @@ const c0 = colorFila(0, 1);
 ok(c0 === '#6b7280', 'P5 [invariante] nota 0 puesto 1: colorBase gris #6b7280, NO dorado');
 ok(!rgbaDesde(c0, 0.33).includes('250,204,21') && !rgbaDesde(c0, 0.6).includes('250,204,21'), 'P5 [invariante] nota 0 puesto 1: ni el tinte (0.33) ni el brillo (0.6) derivados con rgbaDesde son dorados');
 ok(colorFila(19.60, 10) === '#facc15', 'P5 [invariante] puesto 10 → dorado pleno');
-ok(aHex(colorFila(19.60, 20)) === '#0c924f', 'P5 [invariante] puesto 20 → 0% hacia dorado (verde con brillo invertido)');
-ok(aHex(colorFila(19.60, 21)) === '#0c924f', 'P5 [invariante] puesto 21 → sin mezcla (verde con brillo invertido, fuera del Top 20)');
-ok(aHex(colorFila(19.60, 25)) === '#0c924f', 'P5 [invariante] 19.60 puesto 25 → verde con brillo invertido (sin dorado fuera del Top 20)');
+ok(aHex(colorFila(19.60, 20)) === '#56ed0c', 'P5 [invariante] puesto 20 → mezcla alargada ~49% (#56ed0c, antes color de nota puro #11d472)');
+ok(aHex(colorFila(19.60, 21)) === '#3aea0d', 'P5 [invariante] puesto 21 → mezcla alargada ~41% (#3aea0d, antes sin mezcla por estar fuera del Top 20)');
+ok(aHex(colorFila(19.60, 25)) === '#10dc40', 'P5 [invariante] 19.60 puesto 25 → mezcla alargada ~15% (#10dc40, antes verde puro #11d472)');
 
 // ---------- 13. P6 — cadena sintética de desempate [invariante] ----------
 // 8 canciones con calificacion_final 19.00; cada pareja adyacente empata
@@ -998,6 +1063,7 @@ ok(!dataVacia.canciones || !dataVacia.canciones.length,
 console.log('  [P11] sw.js offline: prueba MANUAL (ver pasos en el harness, sección 17); aquí solo se comprueba por texto que el fetch solo cachea res.ok.');
 ok(swJs.includes('if (res.ok)') && swJs.indexOf('if (res.ok)') < swJs.indexOf('.put(r, c)'),
   'P11 sw.js: el fetch solo guarda en caché cuando res.ok (la respuesta no-OK no se cachea)');
+ok(swJs.includes("new Response('Sin conexión'") && swJs.includes('status: 503'), 'R5 sw.js: el fallback 503 "Sin conexión" está en el fuente');
 
 // ---------- 18. G-L1 — ningún log imprime ADMIN_TOKEN ni DATABASE_URL ----------
 // main.cpp: sanitizarLog sustituye la cadena de conexión por
@@ -1139,17 +1205,19 @@ const guardasDentro = mainCpp.split('\n').filter(esGuardaDentro).length;
 const guardasFuera = mainCpp.split('\n').filter(esGuardaFuera).length;
 // Ronda 3, oleada 5: la 7ª guarda de lectura es /api/salud/db (antes 6;
 // el total pasa de 13 a 14). /api/salud (ping de Render) sigue SIN guarda.
-ok(guardasDentro === 14 && guardasFuera === 0,
-  `R2-O2 main.cpp: 14 guardas dentro del try (4 auth + 7 lectura + 3 cuerpo 413), 0 fuera (dentro ${guardasDentro}, fuera ${guardasFuera})`);
+// Ronda 5, extras bloque 5: /importar añade 2 guardas (auth + cuerpo
+// 2 MB); el total pasa de 14 a 16 (5 auth + 7 lectura + 4 cuerpo 413).
+ok(guardasDentro === 16 && guardasFuera === 0,
+  `R2-O2 main.cpp: 16 guardas dentro del try (5 auth + 7 lectura + 4 cuerpo 413), 0 fuera (dentro ${guardasDentro}, fuera ${guardasFuera})`);
 const lecturaDentro = mainCpp.split('\n').filter(l => l.startsWith('            if (excedeLimiteLectura(req')).length;
 ok(lecturaDentro === 7 && mainCpp.includes('respuestaLimiteLectura("GET /api/salud/db")'),
   `R2-O2 main.cpp: 7 guardas de lectura dentro del try (lista, stats, histograma, exportar, generos, artistas y /api/salud/db — la 7ª, ronda 3 oleada 5)`);
 // app.js: cualquier 5xx es SIN CONEXIÓN (502/504 del proxy incluidos) y
 // el 413 nuevo del backend tiene mensaje propio.
-ok(appJs.includes('res.status >= 500') && appJs.includes('res.status === 413'),
-  'R2-O2 app.js: mostrarErrorHttp cubre cualquier 5xx (502/504 incluidos) y el 413');
-ok(appJs.includes('function fetchConTimeout') && appJs.includes('function errorHttp') && appJs.includes('function toastLectura'),
-  'R2-O2 app.js: helpers fetchConTimeout/errorHttp/toastLectura existen');
+ok(apiJsSrc.includes('res.status >= 500') && apiJsSrc.includes('res.status === 413'),
+  'R2-O2 api.js: mostrarErrorHttp cubre cualquier 5xx (502/504 incluidos) y el 413 (módulo 2, ronda 5)');
+ok(apiJsSrc.includes('function fetchConTimeout') && apiJsSrc.includes('function errorHttp') && apiJsSrc.includes('function toastLectura'),
+  'R2-O2 api.js: helpers fetchConTimeout/errorHttp/toastLectura existen (módulo 2, ronda 5)');
 ok((appJs.match(/await fetchConTimeout\(/g) || []).length === 8,
   'R2-O2 app.js: 8 lecturas usan fetchConTimeout con 30 s (antes colgaban sin timeout)');
 ok((appJs.match(/toastLectura\(e\);/g) || []).length === 4,
@@ -1173,7 +1241,7 @@ ok((appJs.match(/showToast\('GUARDANDO…'\)/g) || []).length === 2,
 // implícito (colorFila(19.00) en la sección 12 y el bin 19-20 = 76 en la
 // sección 4): aquí queda fijado como obra maestra y como verde, con el
 // borde 18.99/19.00 en ambos lados.
-ok(aHex(colorFila(19.00, 100)) === '#0c9751' && aHex(colorFila(18.99, 100)) !== '#0c9751',
+ok(aHex(colorFila(19.00, 100)) === '#11cf70' && aHex(colorFila(18.99, 100)) !== '#11cf70',
   'R3 GOD ≥19: 19.00 → verde con bisección; 18.99 sigue en transición turquesa→verde (89.89%), NO verde pleno');
 ok(statsDe([{ calificacion_final: 19.00 }]).obras_maestras === 1 && statsDe([{ calificacion_final: 18.99 }]).obras_maestras === 0,
   'R3 GOD ≥19: 19.00 cuenta como obra maestra en stats, 18.99 no (el umbral es ≥19, no >19)');
@@ -1202,7 +1270,7 @@ ok(statsBlock.includes('PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY calificacion
 let mostrarErrorHttp;
 const avisosErrorHttp = [];
 try {
-  const srcMostrar = extraerFuncion(appJsSrc, 'mostrarErrorHttp', 'public/app.js');
+  const srcMostrar = extraerFuncion(apiJsSrc, 'mostrarErrorHttp', 'public/js/api.js');
   mostrarErrorHttp = new Function('MSG_SIN_CONEXION', 'showToast', 'async ' + srcMostrar + '\nreturn mostrarErrorHttp;')('SIN CONEXIÓN CON EL SERVIDOR', (m, err) => avisosErrorHttp.push([m, !!err]));
 } catch (e) {
   console.error('FALLO DE EXTRACCIÓN (R3): mostrarErrorHttp: ' + e.message);
@@ -1296,16 +1364,16 @@ ok(mainCpp.includes('static const size_t LIMITE_CUERPO = 65536;'), 'R3 cuerpo: L
 ok((mainCpp.match(/cuerpoDemasiadoGrande\(req\)/g) || []).length === 3, 'R3 cuerpo: el límite 413 se comprueba en las 3 escrituras con body (POST, PUT calificar, PUT info)');
 const delBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones/<int>")'), mainCpp.indexOf('// LECTURA DEL PUERTO'));
 ok(!delBlock.includes('cuerpoDemasiadoGrande'), 'R3 cuerpo: DELETE no comprueba el cuerpo (no lleva body; por diseño)');
-ok((appJs.match(/setTimeout\(\(\) => ctrl\w*\.abort\(\), 30000\)/g) || []).length === 3, 'R3 timeouts 30 s: fetchConTimeout, apiFetch y cargarCatalogo abortan a los 30 s (3)');
+ok(((appJs.match(/setTimeout\(\(\) => ctrl\w*\.abort\(\), 30000\)/g) || []).length + (apiJsSrc.match(/setTimeout\(\(\) => ctrl\w*\.abort\(\), 30000\)/g) || []).length) === 3, 'R3 timeouts 30 s: fetchConTimeout, apiFetch y cargarCatalogo abortan a los 30 s (3; los 2 primeros en js/api.js, módulo 2, ronda 5)');
 ok(appJs.includes('}, 15000);'), 'R3 estadísticas: reintento programado a los 15 s si la primera carga falla (E7)');
 ok(appJs.includes('setTimeout(() => cargarCatalogo(1), 300)'), 'R3 búsqueda: debounce de 300 ms (no se pide en cada tecla)');
 ok(appJs.includes('}, 400);'), 'R3 duplicado: el aviso se calcula 400 ms tras dejar de escribir');
 
 // 23f. Token en sessionStorage (decisión 2026-11-14): se borra al cerrar
 // la pestaña; los filtros siguen en localStorage (no sensibles).
-ok(appJs.includes("sessionStorage.getItem('musica_token')") && appJs.includes("sessionStorage.setItem('musica_token'") && (appJs.match(/sessionStorage\.removeItem\('musica_token'\)/g) || []).length === 2, 'R3 token en sessionStorage: get/set/remove de musica_token (2 removes: al cancelar la clave y tras el segundo 401)');
+ok(apiJsSrc.includes("sessionStorage.getItem('musica_token')") && apiJsSrc.includes("sessionStorage.setItem('musica_token'") && (apiJsSrc.match(/sessionStorage\.removeItem\('musica_token'\)/g) || []).length === 2, 'R3 token en sessionStorage: get/set/remove de musica_token (2 removes: al cancelar la clave y tras el segundo 401; en js/api.js, módulo 2, ronda 5)');
 ok(appJs.split('\n').filter(l => l.includes('localStorage.')).every(l => l.includes('musica_filtros')), 'R3 localStorage solo guarda filtros (musica_filtros); el token nunca va a localStorage');
-ok(appJs.includes("'X-Admin-Token': t"), 'R3 apiFetch envía el token de sessionStorage en la cabecera X-Admin-Token');
+ok(apiJsSrc.includes("'X-Admin-Token': t"), 'R3 apiFetch envía el token de sessionStorage en la cabecera X-Admin-Token (js/api.js, módulo 2, ronda 5)');
 
 // 23g. Validación POST/PUT: título/artista, 404 antes que género (E13),
 // id<=0 → 400 en las 3 rutas con id, 409 por unique_violation.
@@ -1313,13 +1381,13 @@ const validarTituloArtista = (t, a) => { if (!t || !a) return 'Campos vacios.'; 
 ok(validarTituloArtista('', 'X') === 'Campos vacios.' && validarTituloArtista('X', '') === 'Campos vacios.', 'R3 validarTituloArtista: título o artista vacío → 400 "Campos vacios."');
 ok(validarTituloArtista('x'.repeat(201), 'Y') === 'Titulo o artista demasiado largo.' && validarTituloArtista('X', 'y'.repeat(201)) === 'Titulo o artista demasiado largo.', 'R3 validarTituloArtista: más de 200 caracteres → 400');
 ok(validarTituloArtista('x'.repeat(200), 'y'.repeat(200)) === '', 'R3 validarTituloArtista: exactamente 200 caracteres pasa');
-ok(mainCpp.includes('if (titulo.empty() || artista.empty()) return "Campos vacios."') && mainCpp.includes('if (titulo.size() > 200 || artista.size() > 200) return "Titulo o artista demasiado largo."'), 'R3 validarTituloArtista: mismas reglas en main.cpp (vacío y >200)');
+ok(mainCpp.includes('if (titulo.empty() || artista.empty()) return "Campos vacios."') && mainCpp.includes('if (contarCaracteresUtf8(titulo) > 200 || contarCaracteresUtf8(artista) > 200) return "Titulo o artista demasiado largo."') && mainCpp.includes('if (contarCaracteresUtf8(nombre) > 200) { error = "Nombre de artista demasiado largo."; return false; }') && !mainCpp.includes('titulo.size() > 200') && !mainCpp.includes('nombre.size() > 200'), 'R3 validarTituloArtista: mismas reglas en main.cpp (vacío y >200 caracteres, no bytes; también en nombres de artista)');
 const postBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones").methods("POST"'), mainCpp.indexOf('// 4. CALIFICAR (PUT)'));
 ok(postBlock.includes('if (!body.has("titulo") || !body.has("artista")'), 'R3 POST sin titulo/artista → 400 "Faltan datos."');
 const putInfoBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones/<int>/info")'), mainCpp.indexOf('// 6. ELIMINAR (DELETE)'));
 ok(enOrden(putInfoBlock, ['SELECT genero, etiqueta_especial, instrumental, banda_sonora FROM canciones WHERE id = $1', 'No encontrado', 'enLista(etiqueta, ETIQUETAS_VALIDAS)']), 'R3 PUT /info E13: id inexistente → 404 ANTES de validar el género (un 404 no se disfraza de 400)');
 ok((mainCpp.match(/if \(id <= 0\) return rechazo/g) || []).length === 3, 'R3 id<=0 → 400 "ID invalido." en las 3 rutas con id (calificar, info, eliminar)');
-ok((mainCpp.match(/catch \(const pqxx::unique_violation&\)/g) || []).length === 2, 'R3 409 por unique_violation en POST y en PUT /info (duplicado en la DB, no solo en la comprobación previa)');
+ok((mainCpp.match(/catch \(const pqxx::unique_violation&\)/g) || []).length === 3, 'R3 409 por unique_violation en POST, en PUT /info y en POST /importar (duplicado en la DB, no solo en la comprobación previa)');
 
 // 23h. Órdenes de GET /api/canciones: lista blanca; lo desconocido es Top.
 ok(mainCpp.includes('if (orden_param == "peores")') && mainCpp.includes('extra_cond = " AND calificacion_final > 0"'), 'R3 orden peores: solo calificadas (calificacion_final > 0) y DESEMPATE_ASC');
@@ -1379,7 +1447,7 @@ ok(mainCpp.includes('GROUP BY 1 ORDER BY promedio DESC, total DESC'), 'R3 /api/c
 ok(mainCpp.includes('o.substr(0, 500) + "...[truncado]"'), 'R3 sanitizarLog trunca a 500 caracteres');
 const exportBlock = mainCpp.slice(mainCpp.indexOf('CROW_ROUTE(app, "/api/canciones/exportar")'), mainCpp.indexOf('// 2d. PROMEDIO'));
 ok(!exportBlock.includes('autorizado(') && exportBlock.includes('excedeLimiteLectura'), 'R3 export público: sin ADMIN_TOKEN (solo límite de lectura 120/min; decisión 2026-11-13 08:10)');
-ok((mainCpp.match(/autorizado\(req,/g) || []).length === 4, 'R3 auth: solo las 4 escrituras exigen ADMIN_TOKEN (POST, PUT calificar, PUT info, DELETE); todas las lecturas son públicas');
+ok((mainCpp.match(/autorizado\(req,/g) || []).length === 5, 'R3 auth: solo las 5 escrituras exigen ADMIN_TOKEN (POST, POST importar, PUT calificar, PUT info, DELETE); todas las lecturas son públicas');
 
 // 23k. Export CSV: anti-fórmula Excel, BOM y \r\n.
 const cel = v => { let s = (v && typeof v === 'object') ? JSON.stringify(v) : String(v ?? ''); if (/^[=+\-@|%]/.test(s.trimStart())) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; }; // espejo de app.js (ronda 3, oleada 2: objetos como JSON, no "[object Object]")
@@ -1417,7 +1485,7 @@ ok((appJs.match(/eliminarCancion\(/g) || []).length === 2, 'R3 Eliminar: solo se
 ok(mainCpp.includes('r.add_header("X-Auth-Error", "token_no_configurado")') && mainCpp.includes('"Token no configurado."'), 'R3-O2 401: token no configurado -> cabecera X-Auth-Error + cuerpo distinto de "No autorizado."');
 ok(mainCpp.includes('if (dynamic_cast<const pqxx::broken_connection*>(&e) != nullptr) return respSegura(503, "DB NO DISPONIBLE");'), 'R3-O2 DB caída: broken_connection -> 503 (no el 500 genérico)');
 ok(mainCpp.includes('res["total_paginas"] = std::max(1, (total_canciones + limite - 1)'), 'R3-O2 total_paginas: catálogo vacío -> 1, no 0');
-ok(appJs.includes("res.headers.get('X-Auth-Error') === 'token_no_configurado'"), 'R3-O2 apiFetch: con token no configurado no pide la clave (sin prompt)');
+ok(apiJsSrc.includes("res.headers.get('X-Auth-Error') === 'token_no_configurado'"), 'R3-O2 apiFetch: con token no configurado no pide la clave (sin prompt; js/api.js, módulo 2, ronda 5)');
 ok(mainCpp.includes("url.find(':', esquema + 3)") && !mainCpp.includes("rfind(':', arroba)"), 'R3-LOG extraerPasswordUrl: primer : tras el esquema (clave con : se tapa entera)');
 ok(mainCpp.includes('if (decod.size() >= 4) g_dbPasswordDecodificada = decod;'), 'R3-LOG decodificada corta (<4) no se guarda: no destrozar texto normal del log');
 ok(mainCpp.includes('crow::logger::setLogLevel(crow::LogLevel::Warning)'), 'R3-LOG Crow en Warning: las peticiones (URL con query) no van al log');
@@ -1471,9 +1539,9 @@ let sandboxCargaSrc;
 try {
   const srcOc = extraerFuncion(appJsSrc, 'ocultarSplash', 'public/app.js');
   const srcCg = extraerFuncion(appJsSrc, 'cargarCatalogo', 'public/app.js');
-  const srcEs = extraerFuncion(appJsSrc, 'escapeHtml', 'public/app.js');
+  const srcEs = extraerFuncion(apiJsSrc, 'escapeHtml', 'public/js/api.js');
   const srcTA = extraerFuncion(appJsSrc, 'textoArtistas', 'public/app.js');
-  const fnsC = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
+  const fnsC = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(coloresJsSrc, n, 'public/js/colores.js'));
   sandboxCargaSrc = [
     'let reqActual = 0, paginaActualGlobal = 1, totalPaginasGlobal = 1, cancionesGlobal = [],',
     '  artistasCompletos = false, catalogoListo = false, statsListas = true, rangoFiltro = null, animacionEntradaLista = true, idSeleccionadoGlobal = null;',
@@ -1564,9 +1632,9 @@ pendientes.push((async () => {
 // lo notaría). El espejo se conserva y se compara contra lo real.
 let colorFilaReal;
 try {
-  const fnsColor = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(appJsSrc, n, 'public/app.js'));
+  const fnsColor = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'].map(n => extraerFuncion(coloresJsSrc, n, 'public/js/colores.js'));
   const ini = appJsSrc.indexOf('// INICIO-COLOR-G');
-  const finMarc = "if (nota > 0 && rank <= 10) { colorBase = '#facc15'; glow = 'rgba(250,204,21,0.7)'; }";
+  const finMarc = "if (nota > 0 && rank <= 10) { colorBase = '#facc15'; glow = 'rgba(250,204,21,0.7)'; enTransicion = false; }";
   const fin = appJsSrc.indexOf(finMarc);
   if (ini === -1 || fin === -1) throw new Error('no se encontró el bloque de color de cargarCatalogo en public/app.js');
   const bloque = appJsSrc.slice(ini, fin + finMarc.length);
@@ -1576,16 +1644,16 @@ try {
   console.error('FALLO DE EXTRACCIÓN (R4-M1): color de fila real: ' + e.message);
   process.exit(1);
 }
-ok(aHex(colorFilaReal(19.00, 100)) === '#0c9751' && aHex(colorFilaReal(18.99, 100)) !== '#0c9751',
-  'R4-M1 color REAL: 19.00 → verde GOD #0c9751; 18.99 es #0c9758 (el umbral es >= 19 en el código real, no en un espejo)');
-ok(aHex(colorFilaReal(18.00, 100)) === '#0c9a9a' && aHex(colorFilaReal(17.99, 100)) !== '#0c9a9a',
-  'R4-M1 color REAL: 18.00 → turquesa #0c9a9a; 17.99 es #0d99a4 (umbral >= 18)');
-ok(aHex(colorFilaReal(17.80, 100)) === '#5488f1' && aHex(colorFilaReal(17.79, 100)) !== '#5488f1',
-  'R4-M1 color REAL: 17.80 → azul #5488f1; 17.79 es #6386f2 (umbral ≥ 17.8)');
-ok(colorFilaReal(18.9, 3) === '#facc15' && colorFilaReal(0, 100) === '#6b7280' && aHex(colorFilaReal(10.05, 678)) === '#d0a8f8',
+ok(aHex(colorFilaReal(19.00, 100)) === '#11cf70' && aHex(colorFilaReal(18.99, 100)) !== '#11cf70',
+  'R4-M1 color REAL: 19.00 → verde GOD #11cf70; 18.99 es #11cf7a (el umbral es >= 19 en el código real, no en un espejo)');
+ok(aHex(colorFilaReal(18.00, 100)) === '#7eb3f5' && aHex(colorFilaReal(17.99, 100)) === '#80b4f5',
+  'R4-M1 color REAL: 18.00 → azul #7eb3f5; 17.99 es #80b4f5 (rampa alargada 17.8–18.5; el umbral >= 18 sigue valiendo para el glow, no para el tono puro)');
+ok(aHex(colorFilaReal(17.80, 100)) === '#8caff6' && aHex(colorFilaReal(17.79, 100)) !== '#8caff6',
+  'R4-M1 color REAL: 17.80 → azul #8caff6; 17.79 es #94adf6 (umbral ≥ 17.8)');
+ok(colorFilaReal(18.9, 3) === '#facc15' && colorFilaReal(0, 100) === '#6b7280' && aHex(colorFilaReal(10.05, 678)) === '#a456f1',
   'R4-M1 color REAL: dorado solo por puesto (18.9 puesto 3), gris sin calificar, violeta 10.05 puesto 678');
-ok(enOrden(appJsSrc, ['colorBase = colorPorNota(nota);', 'alfaGlow = alfaGlowGod(nota);', 'mezcla(0.9 * suave((20 - rank) / 9), colorBase, ', "if (nota > 0 && rank <= 10) { colorBase = '#facc15'"]),
-  'R4-M1 ancla de texto: colorPorNota + alfaGlowGod + mezcla Top 11-20 + dorado Top 10, en orden en app.js');
+ok(enOrden(appJsSrc, ['colorBase = colorPorNota(nota);', 'alfaGlow = alfaGlowGod(nota);', "if (nota > 0 && rank > 10 && rank <= 30) colorBase = mezcla(0.9 * suave((30 - rank) / 19), colorBase, '#facc15');", "if (nota > 0 && rank <= 10) { colorBase = '#facc15'"]),
+  'R4-M1 ancla de texto: colorPorNota + alfaGlowGod + mezcla Top 11-30 + dorado Top 10, en orden en app.js');
 const notasBarrido = [0, 0.01, 10.05, 16.09, 17.49, 17.5, 17.79, 17.8, 17.81, 17.99, 18, 18.49, 18.5, 18.99, 19, 19.6, 20];
 const puestosBarrido = [1, 10, 11, 15, 20, 21, 100, 678];
 let difColor = [];
@@ -1605,7 +1673,7 @@ ok(JSON.stringify(minutosCpp) === JSON.stringify([10, 1]), `R4-M3 ancla numéric
 const retryCpp = [...mainCpp.matchAll(/Retry-After", "(\d+)"/g)].map(m => Number(m[1]));
 ok(JSON.stringify(retryCpp) === JSON.stringify([600, 60]), `R4-M3 ancla numérica: Retry-After 600 (auth) y 60 (lectura) (encontrados: ${retryCpp.join(',')})`);
 ok(numCpp(/std::string\(token\)\.size\(\) >= (\d+)/) === 24, 'R4-M3 ancla numérica: ADMIN_TOKEN válido con >= 24 caracteres (el espejo de 23d usa 24)');
-ok(numCpp(/titulo\.size\(\) > (\d+)/) === 200, 'R4-M3 ancla numérica: título > 200 → 400 (el espejo de 23g usa 200)');
+ok(numCpp(/contarCaracteresUtf8\(titulo\) > (\d+)/) === 200, 'R4-M3 ancla numérica: título > 200 caracteres → 400 (el espejo de 23g usa 200; ronda 5: caracteres, no bytes)');
 ok(numCpp(/buscar\.size\(\) > (\d+)/) === 100 && numCpp(/truncarUtf8\(buscar, (\d+)\)/) === 100, 'R4-M3 ancla numérica: búsqueda truncada a 100 bytes (el espejo de 23i usa 100)');
 ok(numCpp(/ConnectionPool>\(cadena_conexion, (\d+)\)/) === 5 && mainCpp.includes('timeout esperando conexion a la base (5 s)'), 'R4-M3 ancla numérica: pool de 5 conexiones, timeout 5 s (el espejo de 23j usa 5)');
 ok(numCpp(/int limite = (\d+);/) === 50, 'R4-M3 ancla numérica: página de 50 canciones (los espejos de paginación usan 50)');
@@ -1623,7 +1691,7 @@ if (tieneDatos) {
     `[datos reales] Top 10 global intacto con 678: ${top10_678.join(',')}`);
   const rank678 = [...C678].sort(cmp).findIndex(c => c.id === 678) + 1;
   ok(rank678 > 10, `[datos reales] puesto global de la 678 = ${rank678} (fuera del Top 10, no dorada)`);
-  ok(aHex(colorFila(16.09, rank678)) === '#b87cf4', 'R4 678: 16.09 fuera de ventanas = violeta con bisección');
+  ok(aHex(colorFila(16.09, rank678)) === '#c38ff6', 'R4 678: 16.09 fuera de ventanas = violeta con bisección (G invertida)');
   const bins678 = { 'menos-10': 0, '10-12': 0, '12-14': 0, '14-16': 0, '16-17.8': 0, '17.8-18': 0, '18-19': 0, '19-20': 0, 'sin_calificar': 0 };
   for (const c of C678) bins678[binSql(c.calificacion_final)]++;
   ok(JSON.stringify(bins678) === JSON.stringify({ 'menos-10': 0, '10-12': 22, '12-14': 79, '14-16': 157, '16-17.8': 186, '17.8-18': 16, '18-19': 142, '19-20': 76, 'sin_calificar': 0 }),
@@ -1659,7 +1727,7 @@ ok(api678.find(a => a.nombre === 'RedOne').canciones === 0 && api678.find(a => a
 ok(api678.find(a => a.nombre === 'Timmy Trumpet').canciones === 1 && api678.find(a => a.nombre === 'Timmy Trumpet').principales === 1
   && api678.find(a => a.nombre === 'Savage').canciones === 1 && api678.find(a => a.nombre === 'Savage').principales === 0,
   'R4 artistas 678: Timmy Trumpet 1/1 (principal), Savage 1/0 (invitado cuenta como canción, no como principal)');
-const sql678 = fs.readFileSync(BASE + 'correccion-678.sql', 'utf8');
+const sql678 = leerSql('correccion-678.sql');
 ok(sql678.includes("SET nombre = 'Timmy Trumpet'") && sql678.includes("WHERE id = 437 AND nombre = 'Timmy trumpet'"),
   "R4 678 SQL: artista 437 'Timmy trumpet' → 'Timmy Trumpet' con guarda");
 ok(sql678.includes("SET artista = 'Timmy Trumpet'") && sql678.includes("WHERE id = 678 AND artista = 'Timmy trumpet'"),
@@ -1684,19 +1752,38 @@ ok(truncarUtf8('a'.repeat(98) + '🎵', 100) === 'a'.repeat(98) && truncarUtf8('
 ok(truncarUtf8('a'.repeat(99) + 'С', 100) === 'a'.repeat(99) && truncarUtf8('é'.repeat(50), 100) === 'é'.repeat(50),
   'R4 UTF-8: cirílico de 2 bytes en el corte se corta antes (99 a); 50 é = 100 bytes exactos se quedan');
 
-// 25g. Título de 200 caracteres exactos: B1 (ronda 3) — el frontend
-// cuenta caracteres (JS .length, maxlength=200) y el backend cuenta
-// bytes (std::string .size()). Con ASCII coinciden; con multibyte no.
-// Se ancla la divergencia tal como está, sin cambiarla.
+// 25g. Título de 200 caracteres exactos: B1 (ronda 3) CORREGIDO en la
+// ronda 5 (ChatGPT) — el frontend cuenta caracteres (JS .length,
+// maxlength=200) y el backend AHORA también (contarCaracteresUtf8 en
+// main.cpp, coherente con schema char_length<=200). Antes el backend
+// contaba bytes (std::string .size()) y 101 'é' (202 bytes) se
+// rechazaba aunque la DB y el navegador lo admitían.
+// Espejo JS de contarCaracteresUtf8: un code point por byte inicial
+// (los bytes de continuación 10xxxxxx no cuentan).
+const contarCaracteres = str => [...Buffer.from(str, 'utf8')].filter(b => (b & 0xC0) !== 0x80).length;
+ok(contarCaracteres('é'.repeat(101)) === 101 && contarCaracteres('🎵') === 1 && contarCaracteres('a'.repeat(200)) === 200 && contarCaracteres('С'.repeat(50)) === 50,
+  'R5 UTF-8: contarCaracteresUtf8 (espejo): 101 é = 101, 🎵 = 1 code point, 50 С = 50');
 ok((idxHtml.match(/maxlength="200"/g) || []).length === 4 && (appJs.match(/maxlength="200"/g) || []).length === 4,
   'R4 título 200: maxlength="200" en 4 campos de index.html (título, artista, invitados, productor) y 4 del modal de editar');
 const titulo200e = 'é'.repeat(200);
-const validarTituloArtistaBytes = (t, a) => { if (!t || !a) return 'Campos vacios.'; if (Buffer.byteLength(t, 'utf8') > 200 || Buffer.byteLength(a, 'utf8') > 200) return 'Titulo o artista demasiado largo.'; return ''; };
 ok(titulo200e.length === 200 && Buffer.byteLength(titulo200e, 'utf8') === 400
-  && validarTituloArtista(titulo200e, 'X') === '' && validarTituloArtistaBytes(titulo200e, 'X') === 'Titulo o artista demasiado largo.',
-  'R4 B1: 200 é = 200 caracteres (frontend: pasa) pero 400 bytes (backend: rechaza) — divergencia bytes/caracteres documentada, sin cambio');
-ok(validarTituloArtistaBytes('x'.repeat(200), 'y'.repeat(200)) === '' && validarTituloArtistaBytes('x'.repeat(201), 'Y') === 'Titulo o artista demasiado largo.',
-  'R4 B1: con ASCII, frontend y backend coinciden (200 pasa, 201 rechaza en ambos)');
+  && validarTituloArtista(titulo200e, 'X') === '' && contarCaracteres(titulo200e) === 200,
+  'R5 B1 CORREGIDO: 200 é = 200 caracteres (400 bytes) pasa en frontend y en backend (antes el backend lo rechazaba por bytes)');
+ok(validarTituloArtista('é'.repeat(101), 'X') === '' && validarTituloArtista('X', 'é'.repeat(201)) === 'Titulo o artista demasiado largo.',
+  'R5 B1 CORREGIDO: 101 é pasa (el caso de ChatGPT) y 201 é se rechaza por caracteres, no por bytes');
+ok(mainCpp.includes('contarCaracteresUtf8') && mainCpp.includes('if (!utf8Valido(titulo) || !utf8Valido(artista)) return "Titulo o artista no valido."'),
+  'R5 B1 CORREGIDO: main.cpp usa contarCaracteresUtf8 y rechaza UTF-8 inválido en título/artista con 400 (no 500)');
+// 25g2. parseEntero/parseDoble ESTRICTOS (ronda 5, ChatGPT): espejos JS
+// de la lógica C++ (stoi/stod con &pos y s[pos] == '\0'); "4abc" ya no
+// se interpreta como 4.
+const parseEnteroE = (str, def) => { if (!str) return def; if (!/^\s*[+-]?\d+$/.test(str)) return def; const v = Number(str); return Number.isSafeInteger(v) ? v : def; };
+const parseDobleE = (str, def) => { if (!str) return def; if (!/^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(str)) return def; const v = Number(str); return Number.isFinite(v) ? v : def; };
+ok(parseEnteroE('4abc', 1) === 1 && parseEnteroE('4', 1) === 4 && parseEnteroE('abc', 1) === 1 && parseEnteroE('', 1) === 1 && parseEnteroE(' 4', 1) === 4 && parseEnteroE('12x', 0) === 0,
+  'R5 parse estricto: parseEntero("4abc") → defecto (antes 4); "4" → 4; "abc"/"" → defecto');
+ok(parseDobleE('12.5x', -1) === -1 && parseDobleE('12.5', -1) === 12.5 && parseDobleE('4', -1) === 4 && parseDobleE('inf', -1) === -1 && parseDobleE('19.60abc', -1) === -1,
+  'R5 parse estricto: parseDoble("12.5x") → defecto; "12.5" → 12.5; "inf" → defecto (no finito)');
+ok(mainCpp.includes('std::stoi(s, &pos)') && mainCpp.includes('std::stod(s, &pos)') && mainCpp.includes("s[pos] != '\\0'"),
+  'R5 parse estricto: main.cpp usa stoi/stod con &pos y exige s[pos] == NUL (caracteres sobrantes → defecto)');
 
 // 25h. Nota .xx5 en ambos sentidos: el total exacto termina en 5 en la
 // tercera decimal; el double lo redondea arriba o abajo según su
@@ -1748,6 +1835,240 @@ if (tieneDatos) {
   ok(statsDe(C).mediana === 16.86, `[datos reales] statsDe mediana real: ${statsDe(C).mediana} (antes era 0 hardcodeada; PERCENTILE_CONT 0.5 del endpoint)`);
   ok(statsDe([{ calificacion_final: 19.00 }]).mediana === 19.00 && statsDe([]).mediana === 0, 'R4 statsDe: mediana de 1 canción = su nota; de 0 canciones = 0');
 } else skip('statsDe mediana real con datos reales (sin public/datos-reales.json)');
+
+// 25f. R5 portabilidad del harness (ChatGPT, 2026-11-17): BASE desde
+// __dirname y SQL desde migraciones/ con fallback a raíz.
+const harnessSrc = fs.readFileSync(__filename, 'utf8');
+const patronHomeFijo = 'process.env.HOME' + " + '" + '/workspace'; // construido por partes: el literal completo no aparece en este fuente
+ok(!harnessSrc.includes(patronHomeFijo), 'R5 portabilidad: el harness no usa process.env.HOME + ruta fija (BASE desde __dirname)');
+ok(fs.existsSync(path.join(BASE, 'harness-pruebas.js')) && fs.existsSync(path.join(BASE, 'public', 'app.js')) && fs.existsSync(path.join(BASE, 'main.cpp')),
+  'R5 portabilidad: BASE (__dirname) resuelve el paquete: harness-pruebas.js, public/app.js y main.cpp existen');
+const SQL_MIGRACIONES = ['artistas-aplicar.sql', 'correccion-678.sql', 'correccion-datos-ronda-4.sql', 'lote-1-aplicar.sql', 'lote-2-3-aplicar.sql', 'lote-4-aplicar.sql', 'titulos-correcciones.sql'];
+ok(SQL_MIGRACIONES.every(n => leerSql(n).length > 100), `R5 portabilidad: leerSql() encuentra los 7 SQL de migración (${SQL_MIGRACIONES.join(', ')})`);
+ok(fs.readFileSync(path.join(BASE, 'schema.sql'), 'utf8').length > 100, 'R5 portabilidad: schema.sql se lee desde la raíz (en ambos layouts)');
+ok(leerSql('artistas-aplicar.sql').includes('cancion_artistas') && leerSql('correccion-678.sql').includes('678'), 'R5 portabilidad: contenido de artistas-aplicar.sql y correccion-678.sql leído por leerSql()');
+{
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'harness-r5-'));
+  const raiz = path.join(tmp, 'pkg');
+  fs.mkdirSync(path.join(raiz, 'migraciones'), { recursive: true });
+  fs.writeFileSync(path.join(raiz, 'migraciones', 'x.sql'), 'MIG');
+  fs.writeFileSync(path.join(raiz, 'x.sql'), 'RAIZ');
+  ok(resolverSql(raiz, 'x.sql') === 'MIG', 'R5 portabilidad: con migraciones/ presente, resolverSql prefiere migraciones/ (layout repo)');
+  fs.unlinkSync(path.join(raiz, 'migraciones', 'x.sql'));
+  ok(resolverSql(raiz, 'x.sql') === 'RAIZ', 'R5 portabilidad: sin migraciones/x.sql, resolverSql usa la raíz (layout paquete preparado)');
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// R5 (ChatGPT): sin red y sin caché, sw.js devolvía undefined (respuesta
+// inválida para respondWith). Ahora devuelve una Response 503 válida.
+// Se ejecuta el handler fetch REAL de sw.js en un sandbox (vm) con fetch
+// que rechaza: con caché vacía debe dar 503 'Sin conexión'; con caché
+// debe servir la copia guardada.
+pendientes.push((async () => {
+  const vm = require('vm');
+  const correrSw = async (cacheada) => {
+    let fetchHandler;
+    const sandbox = {
+      self: { addEventListener: (ev, fn) => { if (ev === 'fetch') fetchHandler = fn; }, skipWaiting: () => {}, clients: { claim: async () => {} } },
+      caches: { open: async () => ({ put: async () => {}, add: async () => {} }), keys: async () => [], match: async () => cacheada, delete: async () => true },
+      location: { origin: 'https://x' },
+      URL, Response, console,
+      fetch: async () => { throw new Error('sin red'); },
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(swJs, sandbox);
+    let promesa;
+    fetchHandler({ request: { method: 'GET', url: 'https://x/no-cacheada.js' }, respondWith: p => { promesa = p; } });
+    return await promesa;
+  };
+  const r503 = await correrSw(undefined);
+  ok(r503 instanceof Response && r503.status === 503 && (await r503.text()) === 'Sin conexión', 'R5 sw.js: sin red y sin caché → Response 503 "Sin conexión" (no undefined)');
+  const copia = new Response('copia guardada', { status: 200 });
+  const rHit = await correrSw(copia);
+  ok(rHit.status === 200 && (await rHit.text()) === 'copia guardada', 'R5 sw.js: sin red pero con caché → sirve la copia guardada (200)');
+})());
+// 25h. R5 Tailwind local + fuentes propias (2026-11-17): sin CDN de
+// Tailwind ni fuentes de Google; CSS compilado local y fuentes woff2
+// autoalojadas; sw.js las precachea (caché v4).
+ok(!idxHtml.includes('cdn.tailwindcss.com') && !idxHtml.includes('fonts.googleapis.com') && !idxHtml.includes('fonts.gstatic.com'),
+  'R5 Tailwind local: index.html sin CDN de Tailwind ni fuentes de Google');
+ok(idxHtml.includes('/css/tailwind.min.css') && !idxHtml.includes('tailwind.config ='),
+  'R5 Tailwind local: index.html enlaza /css/tailwind.min.css y no lleva tailwind.config inline');
+const twCss = fs.readFileSync(path.join(BASE, 'public/css/tailwind.min.css'), 'utf8');
+const twCfg = fs.readFileSync(path.join(BASE, 'tailwind.config.js'), 'utf8');
+ok(twCss.length > 10000 && (twCss.match(/@font-face/g) || []).length === 10 && twCss.includes('.font-display') && twCss.includes('.font-mono'),
+  'R5 Tailwind local: tailwind.min.css compilado (>10 KB, 10 @font-face, .font-display y .font-mono)');
+ok(twCss.includes('.invisible') && twCss.includes('.hover\\:brightness-125') && twCss.includes('.shadow-\\[0_4px_14px'),
+  'R5 Tailwind local: el CSS compilado cubre utilidades usadas (invisible, hover:brightness-125, shadow arbitrario)');
+ok(twCfg.includes("'./public/index.html'") && twCfg.includes("'./public/app.js'") && twCfg.includes("'./public/js/*.js'") && twCfg.includes('JetBrains Mono') && twCfg.includes('Chakra Petch'),
+  'R5 Tailwind local: tailwind.config.js escanea index.html + app.js + js/*.js y define mono/display');
+const FUENTES = ['chakra-petch-500-latin.woff2', 'chakra-petch-500-latin-ext.woff2', 'chakra-petch-700-latin.woff2', 'chakra-petch-700-latin-ext.woff2', 'jetbrains-mono-400-latin.woff2', 'jetbrains-mono-400-latin-ext.woff2', 'jetbrains-mono-400-cyrillic.woff2', 'jetbrains-mono-700-latin.woff2', 'jetbrains-mono-700-latin-ext.woff2', 'jetbrains-mono-700-cyrillic.woff2'];
+ok(FUENTES.every(f => { const b = fs.readFileSync(path.join(BASE, 'public/fonts', f)); return b.length > 1000 && b.slice(0, 4).toString('ascii') === 'wOF2'; }),
+  `R5 Tailwind local: las 10 fuentes woff2 existen en public/fonts/ y son wOF2 válidas`);
+ok(swJs.includes("'/css/tailwind.min.css'") && swJs.includes("'/fonts/chakra-petch-500-latin.woff2'") && swJs.includes("'/fonts/jetbrains-mono-400-latin.woff2'") && swJs.includes("const V = 'v6'"),
+  'R5 Tailwind local: sw.js precachea el CSS local y las fuentes (caché v6, con js/colores.js y js/api.js)');
+ok(JSON.parse(fs.readFileSync(path.join(BASE, 'package.json'), 'utf8')).scripts.build.includes('tailwindcss'),
+  'R5 Tailwind local: package.json build compila Tailwind local (npm run build)');
+
+// 25i. R5 CSP completa (2026-11-17): delegación data-accion, 0 handlers
+// inline (23 onclick en index.html + 12 en app.js + onchange/oninput/
+// onfocus/onkeydown → addEventListener), CSP script-src 'self' en
+// vercel.json. style-src conserva 'unsafe-inline' solo por el <style>
+// inline y los style="" de las filas (documentado, fuera de alcance).
+const inlineAttr = /\son(click|change|input|focus|keydown|keyup|submit|load)=/g;
+ok(!(inlineAttr.test(idxHtml)) && !(inlineAttr.test(appJs)),
+  'R5 CSP: 0 handlers inline en index.html y app.js (sin on*=)');
+const accionesHtml = [...new Set([...idxHtml.matchAll(/data-accion="([^"]+)"/g), ...appJs.matchAll(/data-accion="([^"]+)"/g)].map(m => m[1]))];
+const bloqueAcciones = appJs.split('const ACCIONES = {')[1].split('};')[0];
+const clavesAcciones = [...bloqueAcciones.matchAll(/'([a-z-]+)':/g)].map(m => m[1]);
+ok(accionesHtml.length === 24 && clavesAcciones.length === 24 && accionesHtml.every(a => clavesAcciones.includes(a)),
+  'R5 CSP: 24 data-accion en el HTML y 24 claves en ACCIONES, cobertura 1:1');
+ok(appJs.includes('function vigilarEventos()') && appJs.includes('vigilarEventos();') && appJs.includes("document.addEventListener('click'"),
+  'R5 CSP: vigilarEventos() definida y llamada en window.onload, con listener de click delegado');
+ok(['titulo', 'artista', 'ritmo', 'letras', 'coro', 'importancia', 'antiguedad', 'nostalgia', 'complejidad', 'descubrimiento_unico', 'arte_visual', 'select-orden', 'input-buscar'].every(id => idxHtml.includes(`id="${id}"`)),
+  'R5 CSP: todos los ids enlazados por vigilarEventos() existen en index.html');
+const vercel = JSON.parse(fs.readFileSync(path.join(BASE, 'vercel.json'), 'utf8'));
+const csp = vercel.headers.find(h => h.source === '/(.*)').headers.find(h => h.key === 'Content-Security-Policy').value;
+const scriptSrc = csp.split('script-src')[1].split(';')[0];
+ok(scriptSrc.trim() === "'self'" && !csp.includes('cdn.tailwindcss') && !csp.includes('googleapis') && !csp.includes('gstatic'),
+  'R5 CSP: script-src \'self\' sin \'unsafe-inline\' ni orígenes CDN');
+ok(['style-src', "font-src 'self'", 'connect-src', 'https://clasificacion-de-musica.onrender.com', "object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'", "manifest-src 'self'", "worker-src 'self'"].every(t => csp.includes(t)),
+  'R5 CSP: vercel.json incluye style/font/connect/object/base-uri/frame-ancestors/manifest/worker-src');
+ok((idxHtml.match(/<script/g) || []).length === 3 && idxHtml.includes('<script src="/js/colores.js" defer>') && idxHtml.includes('<script src="/js/api.js" defer>') && idxHtml.includes('<script src="/app.js" defer>') && idxHtml.indexOf('/js/colores.js') < idxHtml.indexOf('/js/api.js') && idxHtml.indexOf('/js/api.js') < idxHtml.indexOf('/app.js') && !/<script(?![^>]*src=)/.test(idxHtml),
+  'R5 CSP: index.html tiene tres <script> con src (colores.js, api.js, app.js en ese orden), sin scripts inline');
+const fuentesCache = vercel.headers.find(h => h.source === '/fonts/(.*)');
+const cssCache = vercel.headers.find(h => h.source === '/css/tailwind.min.css');
+ok(cssCache && fuentesCache && cssCache.headers[0].value.includes('max-age=3600') && fuentesCache.headers[0].value.includes('max-age=3600'),
+  'R5 CSP: vercel.json Cache-Control para /css/tailwind.min.css y /fonts/*');
+// 25j. R5 package-lock.json (2026-11-17): generado por `npm install` al
+// instalar tailwindcss 3.4.17 (bloque 1); fija las versiones sin cambiarlas.
+const lock = JSON.parse(fs.readFileSync(path.join(BASE, 'package-lock.json'), 'utf8'));
+const pkg = JSON.parse(fs.readFileSync(path.join(BASE, 'package.json'), 'utf8'));
+ok(lock.lockfileVersion === 3 && lock.packages['node_modules/tailwindcss'].version === '3.4.17' && lock.packages['node_modules/serve'].version.startsWith('14.2.'),
+  'R5 package-lock: lockfile v3, tailwindcss 3.4.17 exacto y serve 14.2.x fijados');
+ok(pkg.devDependencies.tailwindcss === '^3.4.17' && pkg.devDependencies.serve === '^14.2.0' && fs.readFileSync(path.join(BASE, '.gitignore'), 'utf8').includes('node_modules/'),
+  'R5 package-lock: package.json sin cambio de versiones; node_modules/ en .gitignore (el lock sí se sube)');
+// 25k. R5 pg_trgm (2026-11-17, extras bloque 4): migración OPCIONAL
+// documentada en schema.sql (comentada, NO aplicada en vivo): la
+// búsqueda es por subcadena (%abc%), text_pattern_ops solo sirve para
+// prefijos; los índices GIN trigram van uno por columna.
+const schemaSqlTrgm = fs.readFileSync(path.join(BASE, 'schema.sql'), 'utf8');
+ok(schemaSqlTrgm.includes('CREATE EXTENSION IF NOT EXISTS pg_trgm') && schemaSqlTrgm.includes('canciones_titulo_trgm_idx') && schemaSqlTrgm.includes('canciones_artista_trgm_idx') && schemaSqlTrgm.includes('USING GIN (LOWER(titulo) gin_trgm_ops)') && schemaSqlTrgm.includes('USING GIN (LOWER(artista) gin_trgm_ops)'),
+  'R5 pg_trgm: schema.sql documenta la extensión y los 2 índices GIN trigram (título y artista)');
+ok(schemaSqlTrgm.split('\n').every(l => !l.includes('pg_trgm') || l.trimStart().startsWith('--')) && schemaSqlTrgm.includes('canciones_busqueda_idx'),
+  'R5 pg_trgm: el bloque es solo comentario (nada activo) y se conserva el índice text_pattern_ops');
+// 25l. R5 importación de respaldo (2026-11-17, extras bloque 5; ChatGPT:
+// no había forma de restaurar un respaldo, solo de exportarlo).
+// Backend: ruta POST /api/canciones/importar con token, límite 2 MB,
+// confirmar:true obligatorio, validación total antes de insertar,
+// total recalculado, duplicados omitidos, una sola transacción.
+const mainCppImportar = fs.readFileSync(path.join(BASE, 'main.cpp'), 'utf8');
+const _i0Importar = mainCppImportar.indexOf('CROW_ROUTE(app, "/api/canciones/importar")');
+const _i1Importar = mainCppImportar.indexOf('// 4. CALIFICAR', _i0Importar);
+const bloqueImportar = mainCppImportar.slice(_i0Importar, _i1Importar);
+ok(mainCppImportar.includes('CROW_ROUTE(app, "/api/canciones/importar").methods("POST"_method)') && bloqueImportar.includes('autorizado(req, "POST /api/canciones/importar")'),
+  'R5 importar: ruta POST /api/canciones/importar con token de admin');
+ok(mainCpp.includes('LIMITE_CUERPO_IMPORTAR = 2 * 1024 * 1024') && bloqueImportar.includes('cuerpoDemasiadoGrande(req, LIMITE_CUERPO_IMPORTAR)') && bloqueImportar.includes('Demasiadas canciones (máximo 2000 por importación)'),
+  'R5 importar: límite de cuerpo 2 MB (no 64 KB) y máximo 2000 canciones');
+ok(bloqueImportar.includes('Falta confirmación.') && bloqueImportar.includes('Falta la lista de canciones.') && bloqueImportar.includes('La lista de canciones está vacía.'),
+  'R5 importar: confirmar:true obligatorio y lista de canciones obligatoria y no vacía');
+ok(bloqueImportar.includes('(s.ritmo * 0.35) + (s.letras * 0.25) + (s.coro * 0.40)') && bloqueImportar.includes('std::round(') && !bloqueImportar.includes('["id"]'),
+  'R5 importar: el total se recalcula con la fórmula (redondeo a 2 decimales) y el id del archivo se ignora');
+ok(bloqueImportar.includes('omitidas++') && bloqueImportar.includes('W.commit()') && bloqueImportar.includes('calificacion_final) VALUES'),
+  'R5 importar: duplicados se omiten (no error), una transacción, INSERT con calificacion_final');
+ok(bloqueImportar.includes('"descubrimiento", "descubrimiento_terceros", "desc_terc"') && bloqueImportar.includes('"etiqueta_especial"') && bloqueImportar.includes('leerEntradasArtistas(c, s.artista'),
+  'R5 importar: campos tolerantes (etiqueta/etiqueta_especial, descubrimiento/descubrimiento_terceros/desc_terc) y arreglo artistas del export');
+// Frontend: botón Importar + input oculto + confirmación en modal.
+ok(idxHtml.includes('data-accion="importar"') && idxHtml.includes('Importar JSON') && idxHtml.includes('id="input-importar"') && idxHtml.includes('accept=".json,application/json"'),
+  'R5 importar: botón Importar JSON e input oculto .json en index.html');
+ok(appJs.includes('function importarRespaldo()') && appJs.includes('async function importarArchivo(file)') && appJs.includes("`${API_URL}/importar`") && appJs.includes('confirmar: true') && appJs.includes("'importar': () => importarRespaldo()"),
+  'R5 importar: importarRespaldo/importarArchivo, POST a /importar con confirmar:true, acción delegada');
+// Espejo JS de la validación de importación (mismas reglas que el C++):
+// o las 4 notas o ninguna; rangos; arte_visual 0/1; bonos booleanos o
+// 0/1; género/etiqueta en lista; título/artista por caracteres (UTF-8);
+// total recalculado y redondeado a 2 decimales.
+const validarImportacion = (canciones, confirmar) => {
+  if (!confirmar) return ['falta confirmación'];
+  if (!Array.isArray(canciones) || canciones.length === 0) return ['lista vacía'];
+  if (canciones.length > 2000) return ['demasiadas canciones'];
+  const errores = [];
+  const GENEROS = ['Pop', 'Rock', 'Electronica', 'Rap', 'Trap', 'Reggaeton', 'R&B', 'Phonk', 'Banda', 'Corridos', 'Corridos Tumbados', 'Cumbia', 'Salsa', 'Baladas', 'Metal', 'Alternativo', 'Hardstyle', 'Merengue', 'Dembow', 'Reggae', 'Bachata', 'Afrobeats', 'Lofi', 'Hardcore', 'Clasica', 'Latino', 'Romanticas', 'Asiatica', 'Por clasificar'];
+  const ETIQUETAS = ['Original', 'Remix', 'Slowed Reverb', 'Sped Up', 'Cover', 'Acustico', 'En Vivo', 'Fragmento', 'Demo', 'Mashup', 'Edit'];
+  const num = v => typeof v === 'number' && Number.isFinite(v);
+  const bono = v => v === undefined || typeof v === 'boolean' || v === 0 || v === 1;
+  canciones.forEach((c, i) => {
+    const donde = `canción ${i + 1}`;
+    if (!c || typeof c !== 'object') { errores.push(donde + ': no es un objeto.'); return; }
+    if (typeof c.titulo !== 'string' || typeof c.artista !== 'string' || !c.titulo.trim() || !c.artista.trim()) { errores.push(donde + ': faltan título o artista.'); return; }
+    if ([...c.titulo].length > 200 || [...c.artista].length > 200) { errores.push(donde + ': título o artista demasiado largo.'); return; }
+    const genero = (c.genero || 'Por clasificar').trim();
+    const etiqueta = ((c.etiqueta !== undefined ? c.etiqueta : c.etiqueta_especial) || 'Original').trim();
+    if (!GENEROS.includes(genero) || !ETIQUETAS.includes(etiqueta)) { errores.push(donde + ': género o tipo no válido.'); return; }
+    const tiene = k => c[k] !== undefined && c[k] !== null;
+    const alguno = tiene('ritmo') || tiene('letras') || tiene('coro') || tiene('importancia');
+    const todos = tiene('ritmo') && tiene('letras') && tiene('coro') && tiene('importancia');
+    if (alguno && !todos) { errores.push(donde + ': calificación incompleta.'); return; }
+    if (todos) {
+      if (!num(c.ritmo) || !num(c.letras) || !num(c.coro) || !num(c.importancia)) { errores.push(donde + ': la calificación debe ser numérica.'); return; }
+      if (c.ritmo < 0 || c.ritmo > 10 || c.letras < 0 || c.letras > 10 || c.coro < 0 || c.coro > 10) { errores.push(donde + ': la base debe estar entre 0 y 10.'); return; }
+      if (c.importancia < 0 || c.importancia > 5) { errores.push(donde + ': la importancia debe estar entre 0 y 5.'); return; }
+      if (tiene('arte_visual') && (!num(c.arte_visual) || (c.arte_visual !== 0 && c.arte_visual !== 1))) { errores.push(donde + ': arte_visual debe ser 0 o 1.'); return; }
+      const desc = c.descubrimiento !== undefined ? c.descubrimiento : (c.descubrimiento_terceros !== undefined ? c.descubrimiento_terceros : c.desc_terc);
+      if (!bono(c.antiguedad) || !bono(c.nostalgia) || !bono(desc) || !bono(c.complejidad)) { errores.push(donde + ': los bonos deben ser booleanos o 0/1.'); return; }
+      c._total = Math.round(((c.ritmo * 0.35) + (c.letras * 0.25) + (c.coro * 0.40) + (c.antiguedad ? 1 : 0) + (c.nostalgia ? 1 : 0) + (desc ? 1 : 0) + (c.complejidad ? 1 : 0) + c.importancia + (c.arte_visual || 0)) * 100) / 100;
+    }
+  });
+  return errores;
+};
+const cancionExport = { titulo: 'Prueba', artista: 'Artista X', genero: 'Pop', etiqueta: 'Original', ritmo: 8, letras: 7, coro: 9, importancia: 4, arte_visual: 1, antiguedad: true, nostalgia: false, descubrimiento: true, complejidad: false, artistas: [{ id: 1, nombre: 'Artista X', rol: 'principal' }] };
+ok(validarImportacion([cancionExport], true).length === 0 && cancionExport._total === 15.15,
+  'R5 importar (espejo): canción del export válida, total recalculado 15.15 (8*0.35+7*0.25+9*0.40+4+1+1+1)');
+ok(validarImportacion([{ ...cancionExport, titulo: 'é'.repeat(101), calificacion_final: 99 }], true).length === 0,
+  'R5 importar (espejo): 101 \'é\' admitido (101 caracteres, no bytes) y calificacion_final del archivo se ignora');
+ok(validarImportacion([{ ...cancionExport, etiqueta_especial: 'Remix', desc_terc: true }], true).length === 0,
+  'R5 importar (espejo): nombres tolerantes etiqueta_especial y desc_terc aceptados');
+ok(validarImportacion([{ ...cancionExport, genero: 'Bolero' }], true).length === 1,
+  'R5 importar (espejo): género fuera de lista → 1 error');
+ok(validarImportacion([{ ...cancionExport, letras: undefined }], true).length === 1,
+  'R5 importar (espejo): calificación incompleta (falta letras) → 1 error');
+ok(validarImportacion([{ ...cancionExport, arte_visual: 2 }], true).length === 1,
+  'R5 importar (espejo): arte_visual 2 → 1 error');
+ok(validarImportacion([{ titulo: 'Sin nota', artista: 'Y' }], true).length === 0,
+  'R5 importar (espejo): canción sin notas se importa sin calificar');
+ok(validarImportacion([cancionExport], false).length === 1 && validarImportacion([], true).length === 1,
+  'R5 importar (espejo): sin confirmar:true y lista vacía → error');
+// 25m. R5 módulos, paso 1: colores (2026-11-17, extras bloque 6).
+// Las 10 funciones puras de color se mueven de app.js a
+// public/js/colores.js SIN cambiar lógica; app.js las usa como
+// globales (script clásico antes, defer en orden). La verificación
+// de que los colores son idénticos la hacen los tests de la sección 7
+// (14 referencias, contraste creciente), que ahora extraen de colores.js.
+const FNS_COLOR = ['hexAHsl', 'hslARgb', 'mezcla', 'rgbaDesde', 'suave', 'luminanciaRelativa', 'yObjetivo', 'tonoPorNota', 'colorPorNota', 'alfaGlowGod'];
+ok(FNS_COLOR.every(n => coloresJsSrc.includes(`function ${n}(`)) && FNS_COLOR.every(n => !appJsSrc.includes(`function ${n}(`)),
+  'R5 módulos: las 10 funciones de color viven en js/colores.js y ya no se definen en app.js');
+ok(appJsSrc.includes('public/js/colores.js') && appJsSrc.includes('colorBase = colorPorNota(nota);') && appJsSrc.includes('alfaGlow = alfaGlowGod(nota);'),
+  'R5 módulos: app.js apunta a js/colores.js y sigue usando colorPorNota/alfaGlowGod');
+ok(swJs.includes("'/js/colores.js'") && swJs.includes("const V = 'v6'"),
+  'R5 módulos: sw.js precachea /js/colores.js (caché v6)');
+const vercelM = JSON.parse(fs.readFileSync(path.join(BASE, 'vercel.json'), 'utf8'));
+ok(vercelM.headers.some(h => h.source === '/js/colores.js' && h.headers[0].value.includes('max-age=3600')),
+  'R5 módulos: vercel.json Cache-Control para /js/colores.js (igual que app.js)');
+// 25n. R5 módulos, paso 2: api.js (2026-11-17, extras bloque 6).
+// La capa de red + avisos se mueve de app.js a public/js/api.js SIN
+// cambiar lógica: MSG_SIN_CONEXION, escapeHtml, mostrarErrorHttp,
+// fetchConTimeout, errorHttp, toastLectura, apiFetch, showToast.
+// Sin estado de la app: solo fetch/sessionStorage/prompt/DOM.
+const FNS_API = ['escapeHtml', 'mostrarErrorHttp', 'fetchConTimeout', 'errorHttp', 'toastLectura', 'apiFetch', 'showToast'];
+ok(FNS_API.every(n => apiJsSrc.includes(`function ${n}(`) || apiJsSrc.includes(`async function ${n}(`)) && apiJsSrc.includes('const MSG_SIN_CONEXION') && FNS_API.every(n => !appJsSrc.includes(`function ${n}(`)),
+  'R5 módulos: las 7 funciones de api.js + MSG_SIN_CONEXION viven en js/api.js y ya no se definen en app.js');
+ok(appJsSrc.includes('public/js/api.js') && appJsSrc.includes('await apiFetch(') && appJsSrc.includes('showToast('),
+  'R5 módulos: app.js apunta a js/api.js y sigue usando apiFetch/showToast');
+ok(swJs.includes("'/js/api.js'") && swJs.includes("const V = 'v6'"),
+  'R5 módulos: sw.js precachea /js/api.js (caché v6)');
+ok(vercelM.headers.some(h => h.source === '/js/api.js' && h.headers[0].value.includes('max-age=3600')),
+  'R5 módulos: vercel.json Cache-Control para /js/api.js (igual que app.js)');
+ok(idxHtml.indexOf('/js/api.js') > idxHtml.indexOf('/js/colores.js') && idxHtml.indexOf('/js/api.js') < idxHtml.indexOf('/app.js'),
+  'R5 módulos: index.html carga api.js entre colores.js y app.js');
 
 Promise.all(pendientes).then(() => {
   console.log(`\n${pasadas} PASS, ${fallos} FAIL, ${saltadas} SKIP${tieneDatos ? '' : ' (sin datos reales: solo [invariante])'}`);

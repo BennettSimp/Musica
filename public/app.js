@@ -17,74 +17,11 @@
         let reqActual = 0, statsListas = false;
 
     
-        const MSG_SIN_CONEXION = "SIN CONEXIÓN CON EL SERVIDOR";
-        function escapeHtml(str) {
-            if (str === null || str === undefined) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        // E1 (auditoría ronda 1): un solo punto para traducir el estado HTTP
-        // a mensaje. El backend devuelve texto plano en los errores (p. ej.
-        // 400 "Faltan datos.", 409 "La cancion ya existe en el catalogo."),
-        // así que el 400 se lee con res.text(). El 401 lo muestra aquí y
-        // apiFetch ya no hace toast: cada fallo enseña UN solo aviso.
-        async function mostrarErrorHttp(res, porDefecto) {
-            let msg = porDefecto;
-            if (res.status === 400) {
-                // El cuerpo se trunca a 120: un 400 con cuerpo largo (p. ej.
-                // una página de error del proxy) no debe llenar el toast.
-                try { const t = (await res.text()).trim(); if (t) msg = t.slice(0, 120).toUpperCase(); }
-                catch (e) { console.warn('[Evaluador] mostrarErrorHttp (400):', e); }
-            }
-            // 401 con token no configurado en el servidor (ronda 3, oleada 2):
-            // el backend lo marca con la cabecera X-Auth-Error. Sin cabecera
-            // (mock del harness, proxy viejo) sigue siendo CLAVE INCORRECTA.
-            else if (res.status === 401) msg = (res.headers && res.headers.get('X-Auth-Error') === 'token_no_configurado') ? 'CLAVE NO CONFIGURADA EN EL SERVIDOR' : 'CLAVE INCORRECTA';
-            // 403 (B3, ronda 4): el backend nunca lo emite, pero un proxy o
-            // Render sí pueden (WAF, IP bloqueada): antes caía en el mensaje
-            // genérico de la acción y no se sabía que era un rechazo.
-            else if (res.status === 403) msg = 'ACCESO DENEGADO';
-            else if (res.status === 404) msg = 'NO ENCONTRADA';
-            else if (res.status === 409) msg = 'ERROR: LA CANCIÓN YA EXISTE';
-            else if (res.status === 413) msg = 'DATOS DEMASIADO GRANDES';
-            else if (res.status === 429) msg = 'DEMASIADOS INTENTOS, ESPERA';
-            // Cualquier 5xx es "sin conexión": 502/504 del proxy o de
-            // Render al despertar también (antes solo 500/503 caían aquí
-            // y el resto mostraba el mensaje genérico de la acción).
-            else if (res.status >= 500) msg = MSG_SIN_CONEXION;
-            showToast(msg, true);
-        }
-
-        // Lecturas con timeout (ronda 2, oleada 2): solo apiFetch y
-        // cargarCatalogo tenían los 30 s (E4); el resto de fetch() colgaba
-        // sin aviso si el servidor no respondía. Un solo helper para todas.
-        async function fetchConTimeout(url, opciones = {}) {
-            const ctrl = new AbortController();
-            const temporizador = setTimeout(() => ctrl.abort(), 30000);
-            try { return await fetch(url, { ...opciones, signal: ctrl.signal }); }
-            finally { clearTimeout(temporizador); }
-        }
-        // Error HTTP con el estado pegado, para que el catch distinga el
-        // 429 (rate limit) del fallo de conexión: antes todo era
-        // SIN CONEXIÓN, también el 429.
-        function errorHttp(res, url) {
-            // La query no va en el mensaje (ronda 4, oleada LOGS): la URL
-            // del catálogo lleva ?buscar= con el término del usuario y ese
-            // Error se registra con console.error en los catch; la ruta y
-            // el estado bastan para diagnosticar el fallo.
-            const ruta = String(url).split('?')[0];
-            const e = new Error('HTTP ' + res.status + ' en GET ' + ruta);
-            e.status = res.status;
-            return e;
-        }
-        function toastLectura(e) {
-            showToast(e && e.status === 429 ? 'DEMASIADOS INTENTOS, ESPERA' : MSG_SIN_CONEXION, true);
-        }
+        // API y avisos: capa de red + avisos en public/js/api.js
+        // (módulo 2 de la división de app.js, ronda 5); se carga antes
+        // que este archivo y se ven como globales: MSG_SIN_CONEXION,
+        // escapeHtml, mostrarErrorHttp, fetchConTimeout, errorHttp,
+        // toastLectura, apiFetch, showToast.
 
         // Artistas (tabla cancion_artistas): la fila muestra los principales
         // unidos con ", " y los invitados con "ft."; el productor NO va en
@@ -322,105 +259,11 @@
         const MAP_GENEROS = Object.fromEntries(GENEROS);
         const MAP_ETIQUETAS = Object.fromEntries(ETIQUETAS);
 
-        // Mezcla en HSL, no en RGB: en RGB el promedio de dos colores casi
-        // opuestos (fuchsia->verde) cae en un gris de 24% de saturacion.
-        // En HSL el tono viaja por el camino mas corto y la saturacion se
-        // mantiene viva.
-        function hexAHsl(x) {
-            // Acepta hex (#rrggbb) y rgb(...) (la mezcla devuelve rgb(...)):
-            // la mezcla del Top 11-20 parte ahora del propio color de la canción,
-            // que puede venir de un degradado. Sin esto, mezcla() daría NaN.
-            let r, g, b;
-            const m = x.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-            if (m) { r = +m[1]/255; g = +m[2]/255; b = +m[3]/255; }
-            else { r = parseInt(x.slice(1,3),16)/255; g = parseInt(x.slice(3,5),16)/255; b = parseInt(x.slice(5,7),16)/255; }
-            const mx = Math.max(r,g,b), mn = Math.min(r,g,b), l = (mx+mn)/2;
-            if (mx === mn) return [0, 0, l];
-            const d = mx - mn, s = l > 0.5 ? d/(2-mx-mn) : d/(mx+mn);
-            let h = mx === r ? (g-b)/d + (g < b ? 6 : 0) : mx === g ? (b-r)/d + 2 : (r-g)/d + 4;
-            return [h*60, s, l];
-        }
-        function hslARgb(h, s, l) {
-            const c = (1 - Math.abs(2*l-1)) * s, x = c * (1 - Math.abs((h/60)%2 - 1)), m = l - c/2;
-            const [r,g,b] = h < 60 ? [c,x,0] : h < 120 ? [x,c,0] : h < 180 ? [0,c,x] : h < 240 ? [0,x,c] : h < 300 ? [x,0,c] : [c,0,x];
-            return [r,g,b].map(v => Math.round((v+m)*255));
-        }
-        function mezcla(v, a, b) { // mezcla en HSL a->b con t en [0,1]
-            const A = hexAHsl(a), B = hexAHsl(b);
-            let dh = B[0] - A[0];
-            if (dh > 180) dh -= 360; if (dh < -180) dh += 360; // camino mas corto del tono
-            const h = (A[0] + dh*v + 360) % 360;
-            const s = A[1] + (B[1]-A[1])*v, l = A[2] + (B[2]-A[2])*v;
-            return `rgb(${hslARgb(h, s, l).join(',')})`;
-        }
-        // rgba desde un color hex o "rgb(...)", para el brillo y el tinte.
-        function rgbaDesde(color, alpha) {
-            const m = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-            if (m) return `rgba(${m[1]},${m[2]},${m[3]},${alpha})`;
-            const r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
-            return `rgba(${r},${g},${b},${alpha})`;
-        }
-        // Curva suave (smoothstep): el cambio avanza despacio al entrar en
-        // la ventana, mas rapido en medio y despacio al llegar al umbral.
-        // Sin ella la rampa lineal se siente mecanica; con ella el fundido
-        // se ve natural.
-        function suave(t) { return t * t * (3 - 2 * t); }
-// PALETA G (elegida por Nova 2026-11-16 23:36, "Excelente. Aplícala
-// toda"; reemplaza la F): secuencia espectral Dorado → Verde →
-// Turquesa → Azul → Violeta, tonos en orden alrededor de la rueda
-// (47° → 150° → 180° → 220° → 270°), transiciones cortas.
-// Top 10 dorado #facc15 (solo por puesto global, sin requisito de nota);
-// GOD ≥19 verde; 18–19 turquesa; 17.8–18 azul;
-// banda baja (<17.8) violeta. Umbrales absolutos, sin cambio.
-// Tonos: violeta 270°, azul 220°, turquesa 180°, verde 150°. S fija 0.85.
-// Brillo INVERTIDO (oscuro = nota alta) por BISECCIÓN: para cada nota se
-// fija el tono por rampa (HSL, camino más corto, sin desaturar) y se busca
-// por bisección la luz L (S fija 0.85) cuya luminancia relativa Y sea el
-// objetivo lineal Y 0.48 (10.05) → 0.21 (19.60), pendiente −0.02827/nota
-// (G oscurecida: Y0 0.48, pendiente 0.27; la F era 0.40 → 0.17).
-// Rampas 0–90% con smoothstep, ventanas 17.5–17.8 (violeta→azul),
-// 17.8–18 (azul→turquesa), 18.5–19 (turquesa→verde).
-// Glow GOD variable POR CALIFICACIÓN (decisión Nova 20:40, solo GOD; las
-// demás bandas mantienen su glow FIJO por banda): alfa 0.45 en 19.00 →
-// 0.60 en 19.60, lineal; siempre por debajo del dorado (0.70).
-// Jerarquía de glow: dorado 0.70 (halo animado, el más fuerte, intacto) >
-// GOD 0.45–0.60 > turquesa 0.40 > azul 0.35 > violeta 0.30.
-// El dorado Top 10 MANTIENE su gran brillo característico; no se toca.
-function luminanciaRelativa(r, g, b) {
-    const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
-    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-function yObjetivo(nota) {
-    return 0.48 - 0.27 * Math.max(0, Math.min(1, (nota - 10.05) / 9.55));
-}
-function tonoPorNota(nota) {
-    if (nota < 17.5) return 270;
-    if (nota < 17.8) return 270 + (220 - 270) * 0.9 * suave((nota - 17.5) / 0.3);
-    if (nota < 18) return 220 - (220 - 180) * 0.9 * suave((nota - 17.8) / 0.2);
-    if (nota < 18.5) return 180;
-    if (nota < 19) return 180 - (180 - 150) * 0.9 * suave((nota - 18.5) / 0.5);
-    return 150;
-}
-function colorPorNota(nota) {
-    const h = tonoPorNota(nota), y = yObjetivo(nota);
-    let lo = 0.02, hi = 0.98;
-    // 60 iteraciones (la F usaba 50): con 50 el intervalo final
-    // (8.5e-16, ~15 ulp en L≈0.3) NO converge del todo y el punto medio
-    // cae del lado equivocado de un borde de redondeo de canal que está
-    // a <1e-15 del cruce real — 11 de 14 muestras salen 1 punto bajas
-    // (p. ej. GOD 19.00 #0c9651 en vez de #0c9751, y 19.00/19.10
-    // colisionan). Con 60 el intervalo es <1 ulp (convergencia total)
-    // y el resultado es estable: verificado 14/14 para 54–200 iteraciones.
-    for (let i = 0; i < 60; i++) {
-        const mid = (lo + hi) / 2;
-        const [r, g, b] = hslARgb(h, 0.85, mid);
-        if (luminanciaRelativa(r, g, b) < y) lo = mid; else hi = mid;
-    }
-    return '#' + hslARgb(h, 0.85, (lo + hi) / 2).map(v => v.toString(16).padStart(2, '0')).join('');
-}
-function alfaGlowGod(nota) {
-    return 0.45 + (0.60 - 0.45) * Math.max(0, Math.min(1, (nota - 19) / 0.6));
-}
+        // Colores (paleta G invertida): funciones puras en public/js/colores.js
+        // (módulo 1 de la división de app.js, ronda 5); se carga antes
+        // que este archivo y se ven como globales: hexAHsl, hslARgb,
+        // mezcla, rgbaDesde, suave, luminanciaRelativa, yObjetivo,
+        // tonoPorNota, colorPorNota, alfaGlowGod.
         const METRICAS = { ritmo: ['RITMO', 10], letras: ['LETRAS', 10], coro: ['CORO', 10], importancia: ['IMPORT.', 5] };
         const CHIP = 'flex-shrink-0 px-3 py-1.5 rounded-full border text-xs whitespace-nowrap min-h-[44px] '; // min-h 44px: objetivo táctil (auditoría G, ronda 2; antes ~30px)
         const CHIP_ON = 'bg-sky-900 text-sky-100 border-sky-400', CHIP_OFF = 'bg-[#0f1a36] text-gray-300 border-sky-700 hover:border-sky-400 hover:shadow-[0_0_10px_rgba(56,189,248,0.4)]';
@@ -451,8 +294,8 @@ function alfaGlowGod(nota) {
                 mas = base.length - visibles.length;
             }
             document.getElementById('chips-genero').innerHTML = lista.map(([v, n]) =>
-                `<button onclick="elegirGenero('${v}')" aria-pressed="${v === act}" class="${CHIP}${v === act ? CHIP_ON : CHIP_OFF}">${n}${conteoGenero[v] ? ' · ' + conteoGenero[v] : ''}</button>`).join('')
-                + (mas !== null ? `<button onclick="alternarChips()" class="${CHIP}${CHIP_OFF}">Ver más · ${mas}</button>` : (chipsExpandidos ? `<button onclick="alternarChips()" class="${CHIP}${CHIP_OFF}">Ver menos</button>` : ''));
+                `<button data-accion="elegir-genero" data-valor="${v}" aria-pressed="${v === act}" class="${CHIP}${v === act ? CHIP_ON : CHIP_OFF}">${n}${conteoGenero[v] ? ' · ' + conteoGenero[v] : ''}</button>`).join('')
+                + (mas !== null ? `<button data-accion="alternar-chips" class="${CHIP}${CHIP_OFF}">Ver más · ${mas}</button>` : (chipsExpandidos ? `<button data-accion="alternar-chips" class="${CHIP}${CHIP_OFF}">Ver menos</button>` : ''));
         }
         function elegirGenero(v) { document.getElementById('filtro-genero').value = v; pintarChips(); cargarCatalogo(1); }
         const SIN_SELECCION = 'Selecciona una canción en el catálogo';
@@ -465,8 +308,8 @@ function alfaGlowGod(nota) {
                 const max = Math.max(1, ...histograma.map(h => h.total));
                 const totalHist = histograma.reduce((a, h) => a + h.total, 0);
                 const colorBarra = {'10-12': colorPorNota(11), '12-14': colorPorNota(13), '14-16': colorPorNota(15), '16-17.8': colorPorNota(16.9), '17.8-18': colorPorNota(17.9), '18-19': colorPorNota(18.5), '19-20': colorPorNota(19.5), 'sin_calificar': '#6b7280', 'menos-10': colorPorNota(9)};
-                el.innerHTML = histograma.map(h => { const etiqueta = h.rango === 'sin_calificar' ? 'Sin calificar' : h.rango === 'menos-10' ? 'Menos de 10' : h.rango; const pct = totalHist ? Math.round(h.total / totalHist * 100) : 0; return `<button onclick="filtrarRango('${h.rango}')" class="w-full text-left min-h-[44px] flex flex-col justify-center ${h.rango === rangoActivo ? 'rango-activo' : ''}"><div class="flex justify-between gap-2 text-xs"><span class="text-gray-200">${etiqueta}</span><span class="text-gray-400">${h.total} canc. · ${pct}%</span></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 rounded" style="width:${Math.round(h.total / max * 100)}%;background:${colorBarra[h.rango] || '#22d3ee'}"></div></div></button>`; }).join('') || '<p class="text-gray-400 text-xs">Sin datos todavía.</p>';
-            } catch (e) { console.error('[Evaluador] cargarHistograma:', e); toastLectura(e); el.innerHTML = '<p class="text-red-400 text-xs">No se pudo cargar el histograma.</p><button onclick="cargarHistograma()" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button>'; }
+                el.innerHTML = histograma.map(h => { const etiqueta = h.rango === 'sin_calificar' ? 'Sin calificar' : h.rango === 'menos-10' ? 'Menos de 10' : h.rango; const pct = totalHist ? Math.round(h.total / totalHist * 100) : 0; return `<button data-accion="filtrar-rango" data-valor="${h.rango}" class="w-full text-left min-h-[44px] flex flex-col justify-center ${h.rango === rangoActivo ? 'rango-activo' : ''}"><div class="flex justify-between gap-2 text-xs"><span class="text-gray-200">${etiqueta}</span><span class="text-gray-400">${h.total} canc. · ${pct}%</span></div><div class="h-3 bg-[#0f1a36] rounded mt-1"><div class="h-3 rounded" style="width:${Math.round(h.total / max * 100)}%;background:${colorBarra[h.rango] || '#22d3ee'}"></div></div></button>`; }).join('') || '<p class="text-gray-400 text-xs">Sin datos todavía.</p>';
+            } catch (e) { console.error('[Evaluador] cargarHistograma:', e); toastLectura(e); el.innerHTML = '<p class="text-red-400 text-xs">No se pudo cargar el histograma.</p><button data-accion="cargar-histograma" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button>'; }
         }
         let rangoFiltro = null; // [min, max] o null = sin filtro
         let catalogoListo = false; // true tras la primera carga con exito (para el aviso de despertar)
@@ -499,7 +342,7 @@ function alfaGlowGod(nota) {
                     guardarFiltros(); pintarChips(); cargarCatalogo(1);
                 }
                 ul.innerHTML = generos.map((g, i) => `<li class="${i === 0 ? 'genero-top' : ''}"><div class="flex justify-between gap-2"><span class="text-gray-200">${escapeHtml(nombres[g.genero] || g.genero)}</span><span class="text-gray-400">${g.promedio.toFixed(1)}/20 · ${g.total} canc.</span></div><div class="h-1.5 bg-[#0f1a36] rounded mt-1"><div class="h-1.5 rounded" style="width:${Math.min(100, g.promedio / 20 * 100)}%;background:linear-gradient(90deg,#22d3ee,#ff2ea6,#ff7a18)"></div></div></li>`).join('') || '<li class="text-gray-400">Sin datos todavía.</li>';
-            } catch (e) { console.error('[Evaluador] cargarGeneros:', e); toastLectura(e); ul.innerHTML = '<li class="text-red-400">No se pudo cargar.</li><li><button onclick="cargarGeneros()" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button></li>'; }
+            } catch (e) { console.error('[Evaluador] cargarGeneros:', e); toastLectura(e); ul.innerHTML = '<li class="text-red-400">No se pudo cargar.</li><li><button data-accion="cargar-generos" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button></li>'; }
         }
 
         async function exportar(formato) {
@@ -523,6 +366,40 @@ function alfaGlowGod(nota) {
             } catch (e) { console.error('[Evaluador] exportar (GET ' + API_URL + '/exportar):', e); showToast('NO SE PUDO EXPORTAR', true); }
         }
 
+        // Ronda 5, extras bloque 5: importar un respaldo JSON exportado
+        // (GET /api/canciones/exportar). El archivo se lee en local, se
+        // valida la forma y se pide confirmación en el modal ANTES de
+        // enviar nada al servidor; el backend vuelve a validar todo,
+        // exige confirmar:true, recalcula los totales y omite duplicados.
+        function importarRespaldo() { document.getElementById('input-importar').click(); }
+        async function importarArchivo(file) {
+            let data;
+            try { data = JSON.parse(await file.text()); } catch (e) { showToast('ARCHIVO JSON NO VÁLIDO', true); return; }
+            if (!data || typeof data !== 'object' || !Array.isArray(data.canciones) || data.canciones.length === 0) { showToast('EL ARCHIVO NO TRAE CANCIONES', true); return; }
+            if (data.canciones.length > 2000) { showToast('DEMASIADAS CANCIONES (MÁX. 2000)', true); return; }
+            const n = data.canciones.length;
+            abrirModal({
+                titulo: 'IMPORTAR RESPALDO',
+                claseBoton: 'btn-atardecer px-4 py-2 uppercase font-bold text-xs rounded',
+                contenido: `<p class="text-xs text-gray-300">Se importarán <b class="text-sky-300">${n} canciones</b> del archivo <b>${escapeHtml(file.name)}</b>.</p><p class="text-xs text-gray-300 mt-2">Las que ya existan (mismo título y artista) se omitirán. Los IDs se reasignan: el desempate entre notas exactamente iguales puede cambiar. El total de cada canción se recalcula con la fórmula.</p>`,
+                alConfirmar: async () => {
+                    try {
+                        const res = await apiFetch(`${API_URL}/importar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ canciones: data.canciones, confirmar: true }) });
+                        if (!res.ok) {
+                            if (res.status === 400) {
+                                try { const err = await res.json(); if (err.errores && err.errores.length) { showToast('IMPORTACIÓN RECHAZADA: ' + err.errores[0] + (err.total_errores > 1 ? ` (+${err.total_errores - 1} MÁS)` : ''), true); return false; } } catch (e) { /* cae a mostrarErrorHttp */ }
+                            }
+                            await mostrarErrorHttp(res, 'NO SE PUDO IMPORTAR'); return false;
+                        }
+                        const r = await res.json();
+                        showToast(`RESPALDO IMPORTADO: ${r.importadas} NUEVAS, ${r.omitidas} OMITIDAS`);
+                        cargarCatalogo(1); cargarHistograma();
+                        return true;
+                    } catch (e) { console.error('[Evaluador] importar (POST ' + API_URL + '/importar):', e); showToast('NO SE PUDO IMPORTAR', true); return false; }
+                }
+            });
+        }
+
         // E9 (auditoría ronda 1): bloqueo POR ACCIÓN, no un flag global
         // compartido: agregar mientras se califica no debe bloquearse entre
         // sí. (Ronda 2: el toast GUARDANDO… ya no va aquí: se mostraba
@@ -541,38 +418,6 @@ function alfaGlowGod(nota) {
         // auditoría G): sobrevive a recargar la página en la misma pestaña,
         // pero se borra al cerrar la pestaña/navegador. Los filtros siguen
         // en localStorage (no son sensibles).
-        async function apiFetch(url, opts = {}, reintento = true) {
-            let t = '';
-            try { t = sessionStorage.getItem('musica_token') || ''; } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage lectura):', e); }
-            // E4 (auditoría ronda 1): timeout de 30 s; sin él, un servidor
-            // dormido deja la petición colgada sin aviso.
-            const ctrl = new AbortController();
-            const temporizador = setTimeout(() => ctrl.abort(), 30000);
-            let res;
-            try {
-                res = await fetch(url, { ...opts, signal: ctrl.signal, headers: { ...(opts.headers || {}), 'X-Admin-Token': t } });
-            } finally { clearTimeout(temporizador); }
-            // 429: demasiados intentos (el backend lo devuelve tras 5 fallos
-            // seguidos desde la misma IP): no se pide la clave; el aviso
-            // DEMASIADOS INTENTOS, ESPERA lo pone mostrarErrorHttp.
-            if (res.status === 429) return res;
-            // 401 con token no configurado en el servidor (ronda 3, oleada 2):
-            // pedir la clave es inútil (ningún valor pasaría); se devuelve
-            // tal cual y mostrarErrorHttp avisa CLAVE NO CONFIGURADA.
-            if (res.status === 401 && res.headers && res.headers.get('X-Auth-Error') === 'token_no_configurado') return res;
-            if (res.status === 401 && reintento) {
-                // B11 (ronda 4): la clave pegada con un espacio o salto de
-                // línea al final fallaba siempre (401 en bucle): se recorta.
-                const n = (prompt('Clave de administrador:') || '').trim();
-                if (n) { try { sessionStorage.setItem('musica_token', n); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage guardar):', e); } return apiFetch(url, opts, false); }
-                // Cancelado o vacío: no reintentar en bucle; se limpia el
-                // token y el aviso CLAVE INCORRECTA lo muestra mostrarErrorHttp
-                // en el llamador (un solo aviso por fallo).
-                try { sessionStorage.removeItem('musica_token'); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage limpiar tras cancelar):', e); }
-            }
-            if (res.status === 401 && !reintento) { try { sessionStorage.removeItem('musica_token'); } catch (e) { console.warn('[Evaluador] apiFetch (sessionStorage limpiar 401):', e); } }
-            return res;
-        }
 
         function debounceBuscar() { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => cargarCatalogo(1), 300); }
 
@@ -680,15 +525,20 @@ function alfaGlowGod(nota) {
                     const valor = metrica ? c[orden] : c.calificacion_final;
                     let p = c.calificacion_final > 0 ? (valor ?? 0).toFixed(2) : "N/A"; // ?? 0: si una metrica es null con nota > 0 (dato inconsistente), antes rompia todo el catalogo
 
-                    // COLORES — PALETA G (elegida por Nova 2026-11-16 23:36,
-                    // reemplaza la F): Top 10 dorado (solo por puesto
-                    // global), GOD ≥19 verde, 18–19 turquesa, 17.8–18 azul,
-                    // resto violeta. Brillo INVERTIDO (oscuro = nota alta)
-                    // por bisección contra Y lineal 0.48→0.21; transiciones
+                    // COLORES — PALETA G INVERTIDA (Nova 2026-11-17):
+                    // Top 10 dorado (solo por puesto global), GOD ≥19 verde,
+                    // 18–19 turquesa de categoría (rampa azul→turquesa
+                    // hasta 18.5), 17.8–18 azul, resto violeta. Brillo
+                    // CRECIENTE (claro = nota alta) por bisección contra Y
+                    // lineal 0.21→0.48; transiciones
                     // vívidas por HSL (nunca por el gris, nunca pálido).
-                    // Rampas 0–90% con smoothstep: 17.5–17.8
-                    // (violeta→azul), 17.8–18 (azul→turquesa), 18.5–19
-                    // (turquesa→verde). El glow GOD varía POR CALIFICACIÓN
+                    // Rampas ALARGADAS 0–90% con smoothstep (Nova
+                    // 2026-11-17, alargar ambas; inicio ajustado
+                    // 2026-11-17 07:39: la transición a 17.8 empieza
+                    // en 17.5): continuas 17.5–19.0,
+                    // violeta→azul 17.5–17.8, azul→turquesa 17.8–18.5,
+                    // turquesa→verde 18.5–19, sin huecos planos.
+                    // El glow GOD varía POR CALIFICACIÓN
                     // (0.45 en 19.00 → 0.60 en 19.60), solo GOD; las demás
                     // bandas mantienen su glow FIJO (turquesa 0.40, azul
                     // 0.35, violeta 0.30), siempre por debajo del dorado
@@ -706,22 +556,41 @@ function alfaGlowGod(nota) {
                         else if (nota >= 18) alfaGlow = 0.40;
                         else if (nota >= 17.8) alfaGlow = 0.35;
                         else alfaGlow = 0.30;
-                        enTransicion = (nota >= 17.5 && nota < 18) || (nota >= 18.5 && nota < 19);
+                        enTransicion = (nota >= 17.5 && nota < 19); // rampa continua 17.5–19.0 (inicio ajustado 2026-11-17: la transición a 17.8 empieza en 17.5)
                     }
                     // Dorado por puesto GLOBAL, sin importar la nota (decisión del
                     // usuario 2026-11-13 19:19 CST): el Top es el de todas las
                     // canciones por calificacion. Una cancion es dorada si esta
                     // en el Top 10 global, aunque sea la #1 de su genero o del
-                    // orden actual. Del 11 al 20 mezcla desde su propio color
-                    // hacia el dorado con la misma rampa 0-90% y curva suave:
-                    // Top 20 al 0% (color puro), Top 11 al 90%.
-                    // P5: el dorado por puesto y la mezcla 11-20 solo valen
-                    // con nota > 0; sin calificar, la fila queda gris.
-                    if (nota > 0 && rank > 10 && rank <= 20) { colorBase = mezcla(0.9 * suave((20 - rank) / 9), colorBase, '#facc15'); enTransicion = true; }
+                    // orden actual.
+                    // Puestos 11-30 — MEZCLA HACIA EL DORADO, ALARGADA
+                    // (decisión de Nova 2026-11-13, restaurada 2026-11-17
+                    // tras rechazar el híbrido suave, y alargada
+                    // 2026-11-17 a 11-30 para que se vea mejor): el color
+                    // de la fila es la mezcla HSL del color de nota hacia
+                    // el dorado #facc15, rampa 0-90% (0.9*suave((30-rank)
+                    // /19): puesto 11 al 90% dorado, puesto 30 al 0%,
+                    // color de nota puro). El camino corto HSL
+                    // turquesa→dorado pasa por verde/lima: una canción
+                    // turquesa del 11-30 puede verse verdosa como si fuera
+                    // GOD; riesgo conocido y aceptado por Nova. NOTA
+                    // (principio de Nova: que premie a lo mejor): el
+                    // camino HSL pasa por lima, cuya Y (~0.86) supera a
+                    // la del dorado (0.6356); en los datos reales los
+                    // puestos 11-19 quedan más brillantes que el dorado
+                    // en Y pura, igual que ya pasaba en 11-14 con la
+                    // mezcla corta que Nova aprobó ("Me gusta"). El Top 10
+                    // sigue siendo lo más fuerte por su halo animado y su
+                    // glow 0.70 (el mayor), y el fundido es monótono por
+                    // puesto. Capar la Y cambiaría el puesto 11 aprobado,
+                    // así que se documenta y no se toca.
+                    // P5: el dorado por puesto solo vale con nota > 0;
+                    // sin calificar, la fila queda gris.
+                    if (nota > 0 && rank > 10 && rank <= 30) colorBase = mezcla(0.9 * suave((30 - rank) / 19), colorBase, '#facc15');
                     // El brillo sigue al color final con el alfa de su banda
                     // (Top 10 mayor, luego GOD variable, turquesa, azul, violeta).
                     glow = rgbaDesde(colorBase, alfaGlow);
-                    if (nota > 0 && rank <= 10) { colorBase = '#facc15'; glow = 'rgba(250,204,21,0.7)'; }
+                    if (nota > 0 && rank <= 10) { colorBase = '#facc15'; glow = 'rgba(250,204,21,0.7)'; enTransicion = false; } // fix tinte Top 10 (Claude): en el Top 10 el tinte de fondo es 0.20, no 0.33
                     // El tinte de fondo es mas fuerte en transicion (0.33 en vez
                     // de 0.20) para que no se lave sobre el negro. Antes
                     // `${colorBase}33` era CSS invalido cuando colorBase venia
@@ -756,9 +625,8 @@ function alfaGlowGod(nota) {
                     const puntosBonos = `<div class="flex items-center space-x-1">${CAMPOS_BONOS.map((k, i) => `<span class="w-[7px] h-[7px] rounded-full" title="${NOMBRES_BONOS[i]}" style="background:${c[k] ? colorBase : '#374151'}"></span>`).join('')}</div>`;
                     // Barra de progreso al pie de la fila: ancho = nota/20.
                     const barraProgreso = nota > 0 ? `<div class="absolute h-[3px]" style="bottom:6px;left:0;width:${(nota / 20 * 100).toFixed(1)}%;background:${colorBase};box-shadow:0 0 8px ${glow}"></div>` : '';
-
                     return `
-                        <div id="row-${c.id}" onclick="seleccionarTarget(${c.id})" onkeydown="if(event.key==='Enter'&&event.target===this)seleccionarTarget(${c.id})" tabindex="0" class="cancion-row relative overflow-hidden flex flex-col justify-center p-3 border-2 ${isActive} ${nota > 0 && rank <= 10 ? 'halo-dorado' : ''} ${animacionEntradaLista ? 'sin-animacion' : ''} hover:brightness-125 hover:translate-x-1 transition group cursor-pointer rounded-xl" style="${cGlow};animation-delay:${animacionEntradaLista ? 0 : Math.min(index * 30, 450)}ms">
+                        <div id="row-${c.id}" data-accion="seleccionar-target" data-id="${c.id}" tabindex="0" class="cancion-row relative overflow-hidden flex flex-col justify-center p-3 border-2 ${isActive} ${nota > 0 && rank <= 10 ? 'halo-dorado' : ''} ${animacionEntradaLista ? 'sin-animacion' : ''} hover:brightness-125 hover:translate-x-1 transition group cursor-pointer rounded-xl" style="${cGlow};animation-delay:${animacionEntradaLista ? 0 : Math.min(index * 30, 450)}ms">
                             <div class="flex justify-between items-center w-full">
                             <div class="flex items-center space-x-2 min-w-0 pr-2">
                                 <span class="text-xs font-bold w-6 flex-shrink-0" style="${nota > 0 ? `color:${colorBase}` : 'color:#6b7280'}">${mostrarRank ? "#" + rank : ""}</span>
@@ -777,8 +645,8 @@ function alfaGlowGod(nota) {
                                 </div>
                             </div>
                             <div class="row-acciones hidden focus-within:flex justify-end gap-2 mt-2">
-                                <button onclick="event.stopPropagation(); openEditModal(${c.id})" aria-label="Editar ${escapeHtml(c.titulo)}" class="text-yellow-400 hover:text-yellow-300 text-xs font-bold uppercase px-3 py-3 min-h-[44px] min-w-[44px]">Editar</button>
-                                <button onclick="event.stopPropagation(); eliminarCancion(${c.id})" aria-label="Eliminar ${escapeHtml(c.titulo)}" class="text-red-400 hover:text-red-300 text-xs font-bold uppercase px-3 py-3 min-h-[44px] min-w-[44px]">Eliminar</button>
+                                <button data-accion="editar-cancion" data-id="${c.id}" aria-label="Editar ${escapeHtml(c.titulo)}" class="text-yellow-400 hover:text-yellow-300 text-xs font-bold uppercase px-3 py-3 min-h-[44px] min-w-[44px]">Editar</button>
+                                <button data-accion="eliminar-cancion" data-id="${c.id}" aria-label="Eliminar ${escapeHtml(c.titulo)}" class="text-red-400 hover:text-red-300 text-xs font-bold uppercase px-3 py-3 min-h-[44px] min-w-[44px]">Eliminar</button>
                             </div>
                             ${barraProgreso}
                         </div>
@@ -789,16 +657,16 @@ function alfaGlowGod(nota) {
                 if(cancionesGlobal.length > 0) {
                     document.getElementById('lista_canciones').innerHTML += `
                         <div class="flex justify-between items-center mt-3 pt-3 border-t border-sky-900 text-xs text-sky-500 font-bold uppercase">
-                            <button onclick="irPagina(${data.pagina_actual - 1})" ${data.pagina_actual <= 1 ? 'disabled' : ''} class="${data.pagina_actual <= 1 ? 'invisible' : ''} hover:text-sky-300 p-1 min-h-[44px] px-2 disabled:cursor-not-allowed"><< ANT</button>
+                            <button data-accion="ir-pagina" data-valor="${data.pagina_actual - 1}" ${data.pagina_actual <= 1 ? 'disabled' : ''} class="${data.pagina_actual <= 1 ? 'invisible' : ''} hover:text-sky-300 p-1 min-h-[44px] px-2 disabled:cursor-not-allowed"><< ANT</button>
                             <span>PÁG ${data.pagina_actual} / ${data.total_paginas || 1} · ${(data.pagina_actual - 1) * 50 + 1}-${Math.min(data.total_canciones, data.pagina_actual * 50)} DE ${data.total_canciones}</span>
-                            <button onclick="irPagina(${data.pagina_actual + 1})" ${data.pagina_actual >= data.total_paginas ? 'disabled' : ''} class="${data.pagina_actual >= data.total_paginas ? 'invisible' : ''} hover:text-sky-300 p-1 min-h-[44px] px-2 disabled:cursor-not-allowed">SIG >></button>
+                            <button data-accion="ir-pagina" data-valor="${data.pagina_actual + 1}" ${data.pagina_actual >= data.total_paginas ? 'disabled' : ''} class="${data.pagina_actual >= data.total_paginas ? 'invisible' : ''} hover:text-sky-300 p-1 min-h-[44px] px-2 disabled:cursor-not-allowed">SIG >></button>
                         </div>
                     `;
                 }
                 animacionEntradaLista = true;
                 igualarFilas();
                 ocultarSplash();
-            } catch (e) { console.error('[Evaluador] cargarCatalogo:', e); document.getElementById('barra-carga').classList.add('hidden'); document.getElementById('lista_canciones').innerHTML = '<p class="text-red-400 text-xs p-4 text-center">> No se pudo cargar el catálogo. Revisa tu conexión y vuelve a intentarlo.</p><div class="text-center"><button onclick="cargarCatalogo(1)" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button></div>'; toastLectura(e); ocultarSplash(); }
+            } catch (e) { console.error('[Evaluador] cargarCatalogo:', e); document.getElementById('barra-carga').classList.add('hidden'); document.getElementById('lista_canciones').innerHTML = '<p class="text-red-400 text-xs p-4 text-center">> No se pudo cargar el catálogo. Revisa tu conexión y vuelve a intentarlo.</p><div class="text-center"><button data-accion="cargar-catalogo" class="text-xs text-sky-300 border border-sky-500 px-4 py-2 rounded-full hover:border-sky-300 min-h-[44px]">REINTENTAR</button></div>'; toastLectura(e); ocultarSplash(); }
         }
 
         // Quita espacios de los extremos y colapsa los dobles de en medio.
@@ -1189,17 +1057,80 @@ function alfaGlowGod(nota) {
             });
         }
 
-        function showToast(m, err=false) {
-            const c = document.getElementById('toast-container'); const t = document.createElement('div');
-            t.className = `bg-[#0f1a36] border-l-4 ${err ? 'border-red-500 text-red-400' : 'border-green-500 text-green-400'} p-3 shadow-lg toast-enter min-w-[200px] uppercase text-xs font-bold rounded`;
-            t.innerHTML = `> ${escapeHtml(m)}`; c.appendChild(t);
-            setTimeout(() => { t.classList.replace('toast-enter', 'toast-exit'); setTimeout(() => t.remove(), 500); }, 2500);
-        }
 
         function closeModal(r) { if(modalResolve) modalResolve(r); }
 
+        // Delegación de eventos (ronda 5, CSP completa): SIN handlers
+        // inline en el HTML. Los elementos llevan data-accion (+ data-valor
+        // / data-id) y un solo listener de click en document resuelve la
+        // acción. Los botones de la fila (Editar/Eliminar) hacen
+        // stopPropagation en su acción, como hacía el onclick inline.
+        // Las 35 onclick (23 en index.html, 12 en app.js) + los demás
+        // handlers inline (onchange/oninput/onfocus/onkeydown) migran
+        // aquí; la CSP puede ser script-src 'self' sin 'unsafe-inline'.
+        const ACCIONES = {
+            'switch-tab': el => switchTab(el.dataset.valor),
+            'marcar-nav': el => marcarNav(el),
+            'usar-artista-sugerido': () => usarArtistaSugerido(),
+            'ir-duplicado': () => irADuplicado(),
+            'agregar': el => conBloqueo(() => agregarCancion(el.dataset.valor === 'seguir'), 'agregar'),
+            'limpiar-formulario': () => limpiarFormulario(false),
+            'editar-activa': () => editarActiva(),
+            'siguiente-sin-calificar': () => siguienteSinCalificar(),
+            'calificar': () => conBloqueo(calificarCancion, 'calificar'),
+            'quitar-rango': () => quitarRango(),
+            'cargar-catalogo': () => cargarCatalogo(1),
+            'cargar-generos': () => cargarGeneros(),
+            'cargar-histograma': () => cargarHistograma(),
+            'exportar': el => exportar(el.dataset.valor),
+            'importar': () => importarRespaldo(),
+            'cerrar-modal': el => closeModal(el.dataset.valor === 'confirmar'),
+            'cerrar-modal-fondo': (el, e) => { if (e.target === el) closeModal(false); },
+            'elegir-genero': el => elegirGenero(el.dataset.valor),
+            'alternar-chips': () => alternarChips(),
+            'filtrar-rango': el => filtrarRango(el.dataset.valor),
+            'seleccionar-target': el => seleccionarTarget(Number(el.dataset.id)),
+            'editar-cancion': (el, e) => { e.stopPropagation(); openEditModal(Number(el.dataset.id)); },
+            'eliminar-cancion': (el, e) => { e.stopPropagation(); eliminarCancion(Number(el.dataset.id)); },
+            'ir-pagina': el => irPagina(Number(el.dataset.valor)),
+        };
+        function vigilarEventos() {
+            document.addEventListener('click', e => {
+                const el = e.target.closest('[data-accion]');
+                if (!el) return;
+                const fn = ACCIONES[el.dataset.accion];
+                if (fn) fn(el, e);
+            });
+            // Enter sobre la fila enfocada (antes: onkeydown inline en la
+            // fila; solo cuando el foco está en la fila misma, no en un
+            // botón interior, como comprobaba event.target===this).
+            document.addEventListener('keydown', e => {
+                if (e.key !== 'Enter') return;
+                const el = e.target.closest('[data-accion="seleccionar-target"]');
+                if (el && e.target === el) seleccionarTarget(Number(el.dataset.id));
+            });
+            // Elementos estáticos, por id (sin data-accion):
+            const enlazar = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+            enlazar('titulo', 'input', revisarDuplicado);
+            enlazar('artista', 'focus', cargarArtistasCompletos);
+            enlazar('artista', 'input', revisarDuplicado);
+            const enterAgregar = e => { if (e.key === 'Enter') conBloqueo(() => agregarCancion(false), 'agregar'); };
+            enlazar('titulo', 'keydown', enterAgregar);
+            enlazar('artista', 'keydown', enterAgregar);
+            ['ritmo', 'letras', 'coro', 'importancia'].forEach(id => { enlazar(id, 'input', actualizarValores); enlazar(id, 'change', actualizarValores); });
+            ['antiguedad', 'nostalgia', 'complejidad', 'descubrimiento_unico', 'arte_visual'].forEach(id => enlazar(id, 'change', actualizarValores));
+            enlazar('select-orden', 'change', () => cargarCatalogo(1));
+            enlazar('input-buscar', 'input', debounceBuscar);
+            enlazar('input-buscar', 'keydown', e => { if (e.key === 'Enter') { clearTimeout(searchTimeout); cargarCatalogo(1); } });
+            // Importar respaldo (ronda 5, extras bloque 5): el input se
+            // limpia tras cada elección para poder elegir el mismo
+            // archivo dos veces seguidas.
+            enlazar('input-importar', 'change', e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) importarArchivo(f); });
+        }
+
         window.onload = () => {
             vigilarSliders();
+            vigilarEventos();
             actualizarValores(); 
             poblarGeneros(); restaurarFiltros(); pintarChips(); cargarHistograma(); cargarGeneros(); document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(false); });
             if (window.innerWidth < 768) switchTab('cat');

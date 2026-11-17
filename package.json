@@ -5,7 +5,7 @@
   "main": "public/app.js",
   "scripts": {
     "start": "npx serve public",
-    "build": "echo 'Frontend estatico sin build: Tailwind por CDN, salida en public/'",
+    "build": "npx tailwindcss -i ./public/css/tailwind.css -o ./public/css/tailwind.min.css --minify",
     "test": "node harness-pruebas.js"
   },
   "keywords": [
@@ -16,6 +16,7 @@
   "author": "BennettSIMP (K.R.C)",
   "license": "MIT",
   "devDependencies": {
-    "serve": "^14.2.0"
+    "serve": "^14.2.0",
+    "tailwindcss": "^3.4.17"
   }
 }
